@@ -8,13 +8,6 @@ TODO:
  look at diffs between runs
  print last-updated date and ballot count
 
-"""
-
-import urllib
-from collections import Counter
-import lxml.etree as ET
-
-"""
 /srv/voting/colorado/2012/detail.xml
 
 /ElectionResult/Contest/Choice/@totalVotes
@@ -39,7 +32,49 @@ COLORADO COURT OF APPEALS
 JUDICIAL DISTRICT
 COUNTY COURT
 
+Sample redirect from http://results.enr.clarityelections.com/CO/Boulder/43040/
+which is really intended for 
+  http://results.enr.clarityelections.com/CO/Boulder/43040/110810/en/summary.html
+and the csv report at e.g.
+  http://results.enr.clarityelections.com/CO/Rio_Grande/43086/111231/reports/summary.zip
+----
+ <html><head>
+                    <script src="./110810/js/version.js" type="text/javascript"></script>
+                    <script type="text/javascript">TemplateRedirect("summary.html","./110810", "", "");</script>
+                    </head></html>
+----
+
 """
+
+import sys
+import os
+import logging
+from optparse import OptionParser
+from datetime import datetime
+import urllib
+import re
+from collections import Counter
+import lxml.etree as ET
+import shelve
+
+__version__ = "0.1.0"
+
+parser = OptionParser(prog="template.py", version=__version__)
+
+parser.add_option("-s", "--storage",
+  default=os.path.expanduser("~/.config/electionaudits/clarity"),
+  help="storage file name for persistence of data")
+
+parser.add_option("-d", "--debuglevel",
+  type="int", default=logging.WARNING,
+  help="Set logging level to debuglevel: DEBUG=10, INFO=20,\n WARNING=30 (the default), ERROR=40, CRITICAL=50")
+
+parser.add_option("-c", "--county",
+  action="store_true", default=False,
+  help="Retrieve county reports")
+
+# incorporate OptionParser usage documentation in our docstring
+__doc__ = __doc__.replace("%InsertOptionParserUsage%\n", parser.format_help())
 
 detail_xml_name="/srv/voting/colorado/2012/detail.xml"
 
@@ -112,85 +147,110 @@ def xpath_unique(parent, path):
     return nodes[0]
 
 CO_counties = [
- 'Adams/43035/',
- 'Alamosa/43036/',
- 'Arapahoe/43034/',
- 'Archuleta/43037/',
- 'Baca/43038/',
- 'Bent/43039/',
- 'Boulder/43040/',
- 'Broomfield/43041/',
- 'Chaffee/43042/',
- 'Cheyenne/43043/',
- 'Clear_Creek/43044/',
- 'Conejos/43045/',
- 'Costilla/43046/',
- 'Crowley/43047/',
- 'Custer/43048/',
- 'Delta/43049/',
- 'Denver/43050/',
- 'Dolores/43051/',
- 'Douglas/43052/',
- 'Eagle/43053/',
- 'El_Paso/43055/',
- 'Elbert/43054/',
- 'Fremont/43056/',
- 'Garfield/43057/',
- 'Gilpin/43058/',
- 'Grand/43059/',
- 'Gunnison/43060/',
- 'Hinsdale/43061/',
- 'Huerfano/43062/',
- 'Jackson/43063/',
- 'Jefferson/43033/',
- 'Kiowa/43064/',
- 'Kit_Carson/43065/',
- 'La_Plata/43067/',
- 'Lake/43066/',
- 'Larimer/43068/',
- 'Las_Animas/43069/',
- 'Lincoln/43070/',
- 'Logan/43071/',
- 'Mesa/43072/',
- 'Mineral/43073/',
- 'Moffat/43074/',
- 'Montezuma/43075/',
- 'Montrose/43076/',
- 'Morgan/43077/',
- 'Otero/43078/',
- 'Ouray/43079/',
- 'Park/43080/',
- 'Phillips/43081/',
- 'Pitkin/43082/',
- 'Prowers/43083/',
- 'Pueblo/43084/',
- 'Rio_Blanco/43085/',
- 'Rio_Grande/43086/',
- 'Routt/43087/',
- 'Saguache/43088/',
- 'San_Juan/43089/',
- 'San_Miguel/43090/',
- 'Sedgwick/43091/',
- 'Summit/43092/',
- 'Teller/43093/',
- 'Washington/43095/',
- 'Weld/43096/',
- 'Yuma/43097/',
+ 'Adams/43035',
+ 'Alamosa/43036',
+ 'Arapahoe/43034',
+ 'Archuleta/43037',
+ 'Baca/43038',
+ 'Bent/43039',
+ 'Boulder/43040',
+ 'Broomfield/43041',
+ 'Chaffee/43042',
+ 'Cheyenne/43043',
+ 'Clear_Creek/43044',
+ 'Conejos/43045',
+ 'Costilla/43046',
+ 'Crowley/43047',
+ 'Custer/43048',
+ 'Delta/43049',
+ 'Denver/43050',
+ 'Dolores/43051',
+ 'Douglas/43052',
+ 'Eagle/43053',
+ 'El_Paso/43055',
+ 'Elbert/43054',
+ 'Fremont/43056',
+ 'Garfield/43057',
+ 'Gilpin/43058',
+ 'Grand/43059',
+ 'Gunnison/43060',
+ 'Hinsdale/43061',
+ 'Huerfano/43062',
+ 'Jackson/43063',
+ 'Jefferson/43033',
+ 'Kiowa/43064',
+ 'Kit_Carson/43065',
+ 'La_Plata/43067',
+ 'Lake/43066',
+ 'Larimer/43068',
+ 'Las_Animas/43069',
+ 'Lincoln/43070',
+ 'Logan/43071',
+ 'Mesa/43072',
+ 'Mineral/43073',
+ 'Moffat/43074',
+ 'Montezuma/43075',
+ 'Montrose/43076',
+ 'Morgan/43077',
+ 'Otero/43078',
+ 'Ouray/43079',
+ 'Park/43080',
+ 'Phillips/43081',
+ 'Pitkin/43082',
+ 'Prowers/43083',
+ 'Pueblo/43084',
+ 'Rio_Blanco/43085',
+ 'Rio_Grande/43086',
+ 'Routt/43087',
+ 'Saguache/43088',
+ 'San_Juan/43089',
+ 'San_Miguel/43090',
+ 'Sedgwick/43091',
+ 'Summit/43092',
+ 'Teller/43093',
+ 'Washington/43095',
+ 'Weld/43096',
+ 'Yuma/43097',
 ]
 
-def main():
-    if False:
-        for path in CO_counties:
+version_re = re.compile(r'summary.html","\./(?P<version>[\d]*)"')
+
+def main(parser):
+    "Mine the election data"
+
+    (options, args) = parser.parse_args()
+
+    #configure the root logger.  Without filename, default is StreamHandler with output to stderr. Default level is WARNING
+    logging.basicConfig(level=options.debuglevel)   # ..., format='%(message)s', filename= "/file/to/log/to", filemode='w' )
+
+    logging.debug("options: %s; args: %s", options, args)
+
+    db = shelve.open(options.storage)
+
+    if options.county:
+        for path in CO_counties:  # ['Rio_Grande/43086']:
             stream = urllib.urlopen("http://results.enr.clarityelections.com/CO/" + path)
-            data = stream.read()
-            pathn = path.replace("/", "_")
-            with open(pathn + ".html", "w") as out:
-                out.write(data)
-            print pathn
+            logging.debug("Fetch redirect for %s" % path)
+
+            redirect_html = stream.read()
+            logging.debug("Redirect text: %s" % redirect_html)
+
+            match = version_re.search(redirect_html)
+            version = match.group('version')
+            try:
+                logging.debug("Match for version: %s" % version)
+                url = "http://results.enr.clarityelections.com/CO/%s/%s/reports/summary.zip" % (path, version)
+            except:
+                logging.error("No match for %s" % path)
+
+            logging.info("Full url: %s" % url)
+            zipfilen = path.replace("/", "-") + "-" + str(version) + ".zip"
+            
+            urllib.urlretrieve(url, zipfilen)
+            logging.info("Retrieving file: %s" % zipfilen)
 
             # => e.g.  http://results.enr.clarityelections.com/CO/Boulder/43040/110810/en/summary.html
 
-            #print data
             #import pdb; pdb.set_trace()	# put this where you want to start tracing
 
     detail_xml = open(detail_xml_name)
@@ -225,4 +285,4 @@ detail_xml = open(detail_xml_name)
 root = ET.parse(detail_xml).getroot()
 
 if __name__ == "__main__":
-    main()
+    main(parser)
