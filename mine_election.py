@@ -50,7 +50,7 @@ import sys
 import os
 import logging
 from optparse import OptionParser
-from datetime import datetime
+import dateutil.parser
 import urllib
 import re
 from collections import Counter
@@ -228,6 +228,7 @@ def main(parser):
     db = shelve.open(options.storage)
 
     if options.county:
+        #for path in ['Rio_Grande/43086']:
         for path in CO_counties:  # ['Rio_Grande/43086']:
             stream = urllib.urlopen("http://results.enr.clarityelections.com/CO/" + path)
             logging.debug("Fetch redirect for %s" % path)
@@ -239,46 +240,64 @@ def main(parser):
             version = match.group('version')
             try:
                 logging.debug("Match for version: %s" % version)
-                url = "http://results.enr.clarityelections.com/CO/%s/%s/reports/summary.zip" % (path, version)
+                zip_url = "http://results.enr.clarityelections.com/CO/%s/%s/reports/summary.zip" % (path, version)
+                # => e.g.  http://results.enr.clarityelections.com/CO/Boulder/43040/110810/en/summary.html
+                summary_url = "http://results.enr.clarityelections.com/CO/%s/%s/en/summary.html" % (path, version)
             except:
                 logging.error("No match for %s" % path)
 
-            logging.info("Full url: %s" % url)
-            zipfilen = path.replace("/", "-") + "-" + str(version) + ".zip"
+            logging.info("Full url: %s" % zip_url)
+            #zip_filen = path.replace("/", "-") + "-" + str(version) + ".zip"
+            #zip_file = ZipFile(urllib.urlopen(zip_url, zip_filen))
             
-            urllib.urlretrieve(url, zipfilen)
-            logging.info("Retrieving file: %s" % zipfilen)
+            summary_filen = path.replace("/", "-") + "-" + str(version) + "/en/summary.html"
 
-            # => e.g.  http://results.enr.clarityelections.com/CO/Boulder/43040/110810/en/summary.html
+            summary = db.get(summary_filen, None)
+            if not summary:
+                logging.info("Retrieving file: %s" % summary_filen)
+                summary = urllib.urlopen(summary_url).read()
+                db[summary_filen] = summary
 
-            #import pdb; pdb.set_trace()	# put this where you want to start tracing
+                match = re.search(r'Last updated[^;]*;(?P<lastupdated>[^<]*)<', summary)
+                try:
+                    lastupdated = match.group('lastupdated')
+                    lastupdated_ts = dateutil.parser.parse(lastupdated)
+                except Exception, e:
+                    logging.error("No lastupdated on url '%s':\n %s" % (summary_url, e))
+                    continue
 
-    detail_xml = open(detail_xml_name)
-    root = ET.parse(detail_xml).getroot()
+                db[version] = (str(lastupdated_ts), summary_filen)
+                print version, db[version]
 
-    electionName = xpath_unique(root, '//ElectionResult/ElectionName').text
-    timestamp = xpath_unique(root, '//ElectionResult/Timestamp').text
-    ballotsCast = int(xpath_unique(root, '//ElectionResult/ElectionVoterTurnout/@ballotsCast'))
+    if False:
+        detail_xml = open(detail_xml_name)
+        root = ET.parse(detail_xml).getroot()
 
-    print "Election Name: %s\nTimestamp: %s\nBallots Cast: %d\n" % (electionName, timestamp, ballotsCast)
+        electionName = xpath_unique(root, '//ElectionResult/ElectionName').text
+        timestamp = xpath_unique(root, '//ElectionResult/Timestamp').text
+        ballotsCast = int(xpath_unique(root, '//ElectionResult/ElectionVoterTurnout/@ballotsCast'))
 
-    resid = list(residuals(root))
+        print "Election Name: %s\nTimestamp: %s\nBallots Cast: %d\n" % (electionName, timestamp, ballotsCast)
 
-    # avoid some local races
-    top_resid = [r for r in resid if r.residual <= 70.0]
+        resid = list(residuals(root))
 
-    for r in sorted(top_resid, key=lambda r: r.residual):
-        print r
+        # avoid some local races
+        top_resid = [r for r in resid if r.residual <= 70.0]
 
-    contests = {}
-    for r in resid:
-        contests[r.name] = r
+        for r in sorted(top_resid, key=lambda r: r.residual):
+            print r
 
-    p = contests['PRESIDENT AND VICE PRESIDENT']
+        contests = {}
+        for r in resid:
+            contests[r.name] = r
 
-    print "Residual %      Votes    Ballots  County name"
-    for c in sorted(p.by_county.values(), key=lambda c: c.residual):
-        print "%10.2f %10d %10d  %s" % (c.residual, c.total, c.ballotsCast, c.name)
+        p = contests['PRESIDENT AND VICE PRESIDENT']
+
+        print "Residual %      Votes    Ballots  County name"
+        for c in sorted(p.by_county.values(), key=lambda c: c.residual):
+            print "%10.2f %10d %10d  %s" % (c.residual, c.total, c.ballotsCast, c.name)
+
+    db.close()
 
 print "temporarily init root for interactive use"
 detail_xml = open(detail_xml_name)
