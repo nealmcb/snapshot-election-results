@@ -1,6 +1,11 @@
 #!/usr/bin/python
 """mine_election.py: mine election data for falloff / residual rate, etc
-Parses xml election results file from clarity
+Parses xml election results file from clarity, and saves data in database
+(by default, ~/.config/electionaudits/clarity in Berkely DB format).
+
+Usage:
+Get any new county results and archive them in the database:
+ mine_election.py -c
 
 TODO:
  parse a collection of clarity downloads
