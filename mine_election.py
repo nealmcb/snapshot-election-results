@@ -4,10 +4,39 @@ Parses xml election results file from clarity, and saves data in database
 (by default, ~/.config/electionaudits/clarity in Berkely DB format).
 
 Usage:
-Get any new county results and archive them in the database:
+For each new election, update county "url path" see below.
+
+Get any new county results and archive them in the database.
+This will skip any for which we already have an up-to-date dump, and print what was gotten.
+
  mine_election.py -c
 
+%InsertOptionParserUsage%
+
+For now, to look at data, analyze csv, use ~/py/notebooks/corla.ipynb
+
+or....
+
+db = shelve.open("/home/neal/.config/electionaudits/clarity")
+len(db.keys())
+db.keys()
+wash = db['Washington-48433-122703reports/summary.zip']
+wr = open('/tmp/wash.zip', 'w')
+wr.write(wash)
+wr.close()
+
 TODO:
+Get other formats of data also
+
+Produce auditing data: raw margin, diluted margin, auditing required
+
+Use shove for better reliability and cloud or git storage : Python Package Index https://pypi.python.org/pypi/shove/0.5.6
+
+Get state-wide info also
+clean up retrieval of csvs.  they're really zips.  write decoding, dumping sw.
+add function / option to summarize db - range of timestamps, # entries etc.  do so after normal runs
+
+ print summary of contents of database
  parse a collection of clarity downloads
  look for small vote counts, bad residuals, etc
  look at diffs between runs
@@ -151,7 +180,13 @@ def xpath_unique(parent, path):
         print("Error: path %s found %d times in %s" % (path, nnodes, root))
     return nodes[0]
 
-CO_counties = [
+# The url path for county results changes for each election.  Get it e.g. via copy-paste and edit from the html source for
+#  http://results.enr.clarityelections.com/CO/48370/122717/en/select-county.html
+# 
+
+# First one, with no county name, is the CO state level
+CO_counties_2012 = [
+ '43032',
  'Adams/43035',
  'Alamosa/43036',
  'Arapahoe/43034',
@@ -218,10 +253,86 @@ CO_counties = [
  'Yuma/43097',
 ]
 
+# First one, with no county name, is the CO state level
+CO_counties_2013 = [
+ '48370',
+ 'Adams/48373',
+ 'Alamosa/48374',
+ 'Arapahoe/48372',
+ 'Archuleta/48375',
+ 'Baca/48376',
+ 'Bent/48377',
+ 'Boulder/48378',
+ 'Broomfield/48379',
+ 'Chaffee/48380',
+ 'Cheyenne/48381',
+ 'Clear_Creek/48382',
+ 'Conejos/48383',
+ 'Costilla/48384',
+ 'Crowley/48385',
+ 'Custer/48386',
+ 'Delta/48387',
+ 'Denver/48388',
+ 'Dolores/48389',
+ 'Douglas/48390',
+ 'Eagle/48391',
+ 'El_Paso/48393',
+ 'Elbert/48392',
+ 'Fremont/48394',
+ 'Garfield/48395',
+ 'Gilpin/48396',
+ 'Grand/48397',
+ 'Gunnison/48398',
+ 'Hinsdale/48399',
+ 'Huerfano/48400',
+ 'Jackson/48401',
+ 'Jefferson/48371',
+ 'Kiowa/48402',
+ 'Kit_Carson/48403',
+ 'La_Plata/48405',
+ 'Lake/48404',
+ 'Larimer/48406',
+ 'Las_Animas/48407',
+ 'Lincoln/48408',
+ 'Logan/48409',
+ 'Mesa/48410',
+ 'Mineral/48411',
+ 'Moffat/48412',
+ 'Montezuma/48413',
+ 'Montrose/48414',
+ 'Morgan/48415',
+ 'Otero/48416',
+ 'Ouray/48417',
+ 'Park/48418',
+ 'Phillips/48419',
+ 'Pitkin/48420',
+ 'Prowers/48421',
+ 'Pueblo/48422',
+ 'Rio_Blanco/48423',
+ 'Rio_Grande/48424',
+ 'Routt/48425',
+ 'Saguache/48426',
+ 'San_Juan/48427',
+ 'San_Miguel/48428',
+ 'Sedgwick/48429',
+ 'Summit/48430',
+ 'Teller/48431',
+ 'Washington/48433',
+ 'Weld/48434',
+ 'Yuma/48435',
+]
+
+CO_counties = CO_counties_2013
+
 version_re = re.compile(r'summary.html","\./(?P<version>[\d]*)"')
 
 def main(parser):
-    "Mine the election data"
+    """Collect and/or mine election data from a clarity election-night-reporting site
+
+    For "county" option, fetch each county record to see if we have the latest.
+    If not fetch it and add it to the database
+
+    """
 
     (options, args) = parser.parse_args()
 
@@ -229,6 +340,8 @@ def main(parser):
     logging.basicConfig(level=options.debuglevel)   # ..., format='%(message)s', filename= "/file/to/log/to", filemode='w' )
 
     logging.debug("options: %s; args: %s", options, args)
+
+    print("Using database: %s" % options.storage)
 
     db = shelve.open(options.storage)
 
@@ -248,6 +361,7 @@ def main(parser):
                 zip_url = "http://results.enr.clarityelections.com/CO/%s/%s/reports/summary.zip" % (path, version)
                 # => e.g.  http://results.enr.clarityelections.com/CO/Boulder/43040/110810/en/summary.html
                 summary_url = "http://results.enr.clarityelections.com/CO/%s/%s/en/summary.html" % (path, version)
+                csv_url = "http://results.enr.clarityelections.com/CO/%s/%s/reports/summary.zip" % (path, version)
             except:
                 logging.error("No match for %s" % path)
 
@@ -256,12 +370,17 @@ def main(parser):
             #zip_file = ZipFile(urllib.urlopen(zip_url, zip_filen))
             
             summary_filen = path.replace("/", "-") + "-" + str(version) + "/en/summary.html"
+            csv_filen = path.replace("/", "-") + "-" + str(version) + "reports/summary.zip"
 
             summary = db.get(summary_filen, None)
             if not summary:
                 logging.info("Retrieving file: %s" % summary_filen)
                 summary = urllib.urlopen(summary_url).read()
                 db[summary_filen] = summary
+
+                logging.info("Retrieving csv file: %s" % csv_url)
+                csv = urllib.urlopen(csv_url).read()
+                db[csv_filen] = csv
 
                 match = re.search(r'Last updated[^;]*;(?P<lastupdated>[^<]*)<', summary)
                 try:
@@ -304,9 +423,11 @@ def main(parser):
 
     db.close()
 
-print "temporarily init root for interactive use"
+"""
+print "temporarily init root for interactive examination of detail.xml (from )"
 detail_xml = open(detail_xml_name)
 root = ET.parse(detail_xml).getroot()
+"""
 
 if __name__ == "__main__":
     main(parser)
