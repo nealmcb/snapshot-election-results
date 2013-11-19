@@ -11,6 +11,17 @@ This will skip any for which we already have an up-to-date dump, and print what 
 
  mine_election.py -c
 
+Files:
+ summary.html          Container with "Last updated" timestamp, overall "Ballots Cast", but no contest results
+ summary.zip archive   Just a summary.csv file in it, with contest results
+ sum.json              Contest results in JSON format - used by javascript in summary.html
+   e.g. http://results.enr.clarityelections.com/CO/Arapahoe/48372/123238/json/sum.json
+
+Note that the summary.html file doesn't include the actual contest results.
+But it does contain a "Last updated" timestamp and a "Ballots Cast" which can
+be higher than even the 'ballots cast' column of a county-wide contest in the summary.csv.
+That is typically because property owner ballots don't have county-wide races on them.
+
 %InsertOptionParserUsage%
 
 For now, to look at data, analyze csv, use ~/py/notebooks/corla.ipynb
@@ -20,6 +31,7 @@ or....
 db = shelve.open("/home/neal/.config/electionaudits/clarity")
 len(db.keys())
 db.keys()
+arap = db['Arapahoe-48372-123238reports/summary.zip']
 wash = db['Washington-48433-122703reports/summary.zip']
 wr = open('/tmp/wash.zip', 'w')
 wr.write(wash)
