@@ -44,7 +44,14 @@ Produce auditing data: raw margin, diluted margin, auditing required
 
 Use shove for better reliability and cloud or git storage : Python Package Index https://pypi.python.org/pypi/shove/0.5.6
 
-Get state-wide info also
+Check state-wide info
+Get data from other jurisdictions:
+ http://results.enr.clarityelections.com/FL/Dade/42008/113201/en/summary.html
+ http://results.enr.clarityelections.com/FL/Martin/42442/112876/en/summary.html
+ http://results.enr.clarityelections.com/FL/Orange/43105/112625/en/summary.html
+ http://results.enr.clarityelections.com/NJ/Cape_May/48214/122334/en/summary.html
+ search e.g. FL site:results.enr.clarityelections.com
+
 clean up retrieval of csvs.  they're really zips.  write decoding, dumping sw.
 add function / option to summarize db - range of timestamps, # entries etc.  do so after normal runs
 
