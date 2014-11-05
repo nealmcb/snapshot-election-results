@@ -95,6 +95,15 @@ and the csv report at e.g.
                     <script src="./110810/js/version.js" type="text/javascript"></script>
                     <script type="text/javascript">TemplateRedirect("summary.html","./110810", "", "");</script>
                     </head></html>
+
+Sample data from select-county.html
+...
+<td width="33%"><ul>
+<li><a id="Adams" value="/Adams/51560/index.html" href="javascript:a('Adams');">Adams</a></li>
+<li><a id="Alamosa" value="/Alamosa/51561/index.html" href="javascript:a('Alamosa');">Alamosa</a></li>
+<li><a id="Arapahoe" value="/Arapahoe/51559/index.html" href="javascript:a('Arapahoe');">Arapahoe</a></li>
+....
+
 ----
 
 """
@@ -351,6 +360,7 @@ CO_counties_2013 = [
 CO_counties = CO_counties_2013
 
 version_re = re.compile(r'summary.html","\./(?P<version>[\d]*)"')
+county_re = re.compile(r'value="/(?P<county>[^/]*)/(?P<id>[^/]*)/index.html')
 
 def main(parser):
     """Collect and/or mine election data from a clarity election-night-reporting site
@@ -372,77 +382,125 @@ def main(parser):
     db = shelve.open(options.database)
 
     if options.countyids:
-        urlprefix = "http://results.enr.clarityelections.com/"
-
         #for path in CO_counties:  # ['Rio_Grande/43086']:
         for id in [options.countyids]:
             path = "%s/%s" % (options.state, id)
-            stream = urllib.urlopen(urlprefix + path)
-            logging.debug("Fetch redirect for %s" % path)
+            morePaths = retrieve(path, db)
 
-            redirect_html = stream.read()
-            logging.debug("Redirect text: %s" % redirect_html)
+            for countyPath in morePaths:
+                path = "%s/%s" % (options.state, countyPath)
+                retrieve(path, db)
 
-            match = version_re.search(redirect_html)
-            version = match.group('version')
-            try:
-                logging.debug("Match for version: %s" % version)
-                zip_url = "http://results.enr.clarityelections.com/CO/%s/%s/reports/summary.zip" % (path, version)
-                # => e.g.  http://results.enr.clarityelections.com/CO/Boulder/43040/110810/en/summary.html
-                summary_url = "http://results.enr.clarityelections.com/%s/%s/en/summary.html" % (path, version)
-                csvz_url = "http://results.enr.clarityelections.com/%s/%s/reports/summary.zip" % (path, version)
-            except:
-                logging.error("No match for %s" % path)
+    db.close()
 
-            logging.info("Full url: %s" % zip_url)
+def retrieve(path, db):
+    """
+    retrieve the given paths from clarity, and put in db if there is new data.
+    return any possible future paths to fetch
+    """
+
+    urlprefix = "http://results.enr.clarityelections.com/"
+
+    stream = urllib.urlopen(urlprefix + path)
+    logging.debug("Fetch redirect for %s" % path)
+
+    redirect_html = stream.read()
+    logging.debug("Redirect text: %s" % redirect_html)
+
+    match = version_re.search(redirect_html)
+    version = match.group('version')
+    try:
+        logging.debug("Match for version: %s" % version)
+        summary_url = urlprefix + "%s/%s/en/summary.html" % (path, version)
+        # => e.g.  http://results.enr.clarityelections.com/CO/Boulder/43040/110810/en/summary.html
+        csvz_url = urlprefix + "%s/%s/reports/summary.zip" % (path, version)
+        # http://results.enr.clarityelections.com/CO/51557/138497/en/select-county.html
+        select_county_url = urlprefix + "%s/%s/en/select-county.html" % (path, version)
+
+    except:
+        logging.error("No match for %s" % path)
+
+    logging.info("Full url: %s" % summary_url)
+
+    summary_filen = path.replace("/", "-") + "-" + str(version) + "/en/summary.html"
+    csvz_filen = path.replace("/", "-") + "-" + str(version) + "/reports/summary.zip"
+
+    summary = db.get(summary_filen, None)
+
+    if summary:
+        # Get existing data
+        logging.info("Already have summary, length %d, url: %s" % (len(summary), summary_filen))
+        csvz = db[csvz_filen]
+        lastupdated_ts = db.get(version, (None))[0]
+
+    else:
+        logging.info("Retrieving summary file: %s from %s" % (summary_filen, summary_url))
+        summary = urllib.urlopen(summary_url).read()
+        db[summary_filen] = summary
+        logging.info("summary file length: %d" % len(summary))
+        logging.log(5, "summary file: %s" % summary)
+
+        logging.info("Retrieving csvz file: %s" % csvz_url)
+        csvz = urllib.urlopen(csvz_url).read()
+        db[csvz_filen] = csvz
+
+        match = re.search(r'ast updated[^;]*;(?P<lastupdated>[^<]*)<', summary)
+        try:
+            lastupdated = match.group('lastupdated')
+            lastupdated_ts = dateutil.parser.parse(lastupdated)
+        except Exception, e:
+            logging.error("No lastupdated on url '%s':\n %s" % (summary_url, e))
+            return []
+
+        db[version] = (str(lastupdated_ts), summary_filen)
+
+    print "Version: %s, updated %s, file %s" % (version, str(lastupdated_ts), summary_filen)
+
+    zipf = StringIO(csvz)
+    files = ZipFile(zipf, "r")
+    for f in files.namelist():
+        logging.debug("  file: %s" % f)
+        if f != "summary.csv":
+            logging.error("Error - got file named %s in zip file, not summary.csv" % f)
+        csvf = files.open(f)
+        csv = csvf.read()
+        logging.debug("  file length: %d" % len(csv))
+
+    logging.log(5, "csv file:\n%s" % csv)
+
+    morePaths = []
+
+    print "path = %s" % path[3:]
+
+    if "/" not in path[3:]:
+        logging.info("Get select-county.html at %s" % select_county_url)
+        countyList = urllib.urlopen(select_county_url).read()
+
+        print countyList
+
+        counties = re.finditer(county_re, countyList)
+        print "finditer type %s" % type(counties)
+
+        for m in counties:
+            (county, id) = m.groups()
+            countyPath = "%s/%s" % (county, id)
+            print "found %s" % countyPath
+            morePaths.append(countyPath)
+
+        return morePaths
+
+        """
+        nextBegin = 0
+        nextCountyIndex = countyList.find("javascript:a")
+        
+        while nextCountyIndex != -1:
+            countyIndex = countyList.rfind('value="/', nextBegin, nextCountyIndex)
             
-            summary_filen = path.replace("/", "-") + "-" + str(version) + "/en/summary.html"
-            csvz_filen = path.replace("/", "-") + "-" + str(version) + "/reports/summary.zip"
+            morePaths.append()
+        """
 
-            summary = db.get(summary_filen, None)
-
-            if summary:
-                logging.info("Already have summary, length %d, url: %s" % (len(summary), summary_filen))
-                csvz = db[csvz_filen]
-                lastupdated_ts = db.get(version, (None))[0]
-
-            else:
-                logging.info("Retrieving summary file: %s from %s" % (summary_filen, summary_url))
-                summary = urllib.urlopen(summary_url).read()
-                db[summary_filen] = summary
-                logging.info("summary file length: %d" % len(summary))
-                logging.log(5, "summary file: %s" % summary)
-
-                logging.info("Retrieving csvz file: %s" % csvz_url)
-                csvz = urllib.urlopen(csvz_url).read()
-                db[csvz_filen] = csvz
-
-                match = re.search(r'ast updated[^;]*;(?P<lastupdated>[^<]*)<', summary)
-                try:
-                    lastupdated = match.group('lastupdated')
-                    lastupdated_ts = dateutil.parser.parse(lastupdated)
-                except Exception, e:
-                    logging.error("No lastupdated on url '%s':\n %s" % (summary_url, e))
-                    continue
-
-                db[version] = (str(lastupdated_ts), summary_filen)
-
-            print "Version: %s, updated %s, file %s" % (version, str(lastupdated_ts), summary_filen)
-            
-            zipf = StringIO(csvz)
-            files = ZipFile(zipf, "r")
-            for f in files.namelist():
-                logging.debug("  file: %s" % f)
-                if f != "summary.csv":
-                    logging.error("Error - got file named %s in zip file, not summary.csv" % f)
-                csvf = files.open(f)
-                csv = csvf.read()
-                logging.debug("  file length: %d" % len(csv))
-                
-            logging.log(5, "csv file:\n%s" % csv)
-
-            # old    zip_filen = path.replace("/", "-") + "-" + str(version) + ".zip"
-            # old bs zip_file = ZipFile(zip_url, zip_filen)
+    # old    zip_filen = path.replace("/", "-") + "-" + str(version) + ".zip"
+    # old bs zip_file = ZipFile(zip_url, zip_filen)
 
 
     if False:
@@ -472,8 +530,6 @@ def main(parser):
         print "Residual %      Votes    Ballots  County name"
         for c in sorted(p.by_county.values(), key=lambda c: c.residual):
             print "%10.2f %10d %10d  %s" % (c.residual, c.total, c.ballotsCast, c.name)
-
-    db.close()
 
 """
 print "temporarily init root for interactive examination of detail.xml (from )"
