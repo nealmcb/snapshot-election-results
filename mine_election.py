@@ -36,7 +36,13 @@ wr.write(wash)
 wr.close()
 
 TODO:
-configure it to handle multiple elections - e.g. give it url of state-wide, and figure out counties, use one database per election
+figure out how to get county lists for Web01 style - for now get them by hand:
+   navigate to 'counties reporting' tab, save file, grep `id="precinctsreporting', clean up with emacs macros
+
+work with both new-style (Web01) and old-style clarity urls
+figure out how to find last-updated for Web01 style
+
+add a way to re-fetch stuff, or add etag checking or ??
 
 Get other formats of data also
 
@@ -112,6 +118,8 @@ import sys
 import os
 import logging
 from optparse import OptionParser
+import time
+from datetime import datetime
 import dateutil.parser
 import urllib
 import re
@@ -140,6 +148,10 @@ parser.add_option("-s", "--state",
 
 parser.add_option("-c", "--countyids",
   help="Retrieve county results reported at this clarity URL path, e.g. 'Boulder/43040'")
+
+parser.add_option("-u", "--urlformat",
+  default="/Web01",
+  help="Format of urls")
 
 # incorporate OptionParser usage documentation in our docstring
 __doc__ = __doc__.replace("%InsertOptionParserUsage%\n", parser.format_help())
@@ -357,7 +369,76 @@ CO_counties_2013 = [
  'Yuma/48435',
 ]
 
-CO_counties = CO_counties_2013
+# First one, with no county name, is the CO state level
+CO_counties_2014 = [
+ '53335',
+ 'Adams/53338',
+ 'Alamosa/53339',
+ 'Arapahoe/53337',
+ 'Archuleta/53340',
+ 'Baca/53341',
+ 'Bent/53342',
+ 'Boulder/53343',
+ 'Broomfield/53344',
+ 'Chaffee/53345',
+ 'Cheyenne/53346',
+ 'Clear_Creek/53347',
+ 'Conejos/53348',
+ 'Costilla/53349',
+ 'Crowley/53350',
+ 'Custer/53351',
+ 'Delta/53352',
+ 'Denver/53353',
+ 'Dolores/53354',
+ 'Douglas/53355',
+ 'Eagle/53356',
+ 'Elbert/53357',
+ 'El_Paso/53358',
+ 'Fremont/53359',
+ 'Garfield/53360',
+ 'Gilpin/53361',
+ 'Grand/53362',
+ 'Gunnison/53363',
+ 'Hinsdale/53364',
+ 'Huerfano/53365',
+ 'Jackson/53366',
+ 'Jefferson/53336',
+ 'Kiowa/53367',
+ 'Kit_Carson/53368',
+ 'Lake/53369',
+ 'La_Plata/53370',
+ 'Larimer/53371',
+ 'Las_Animas/53372',
+ 'Lincoln/53373',
+ 'Logan/53374',
+ 'Mesa/53375',
+ 'Mineral/53376',
+ 'Moffat/53377',
+ 'Montezuma/53378',
+ 'Montrose/53379',
+ 'Morgan/53380',
+ 'Otero/53381',
+ 'Ouray/53382',
+ 'Park/53383',
+ 'Phillips/53384',
+ 'Pitkin/53385',
+ 'Prowers/53386',
+ 'Pueblo/53387',
+ 'Rio_Blanco/53388',
+ 'Rio_Grande/53389',
+ 'Routt/53390',
+ 'Saguache/53391',
+ 'San_Juan/53392',
+ 'San_Miguel/53393',
+ 'Sedgwick/53394',
+ 'Summit/53395',
+ 'Teller/53396',
+ 'Washington/53398',
+ 'Weld/53399',
+ 'Yuma/53400',
+]
+
+CO_counties = CO_counties_2014
 
 version_re = re.compile(r'summary.html","\./(?P<version>[\d]*)"')
 county_re = re.compile(r'value="/(?P<county>[^/]*)/(?P<id>[^/]*)/index.html')
@@ -381,19 +462,24 @@ def main(parser):
 
     db = shelve.open(options.database)
 
+    # ~/py/mine_election.py -D 20 -c 53704 -d clarity-KY-2014 2>&1 | tee -a 53704.out
     if options.countyids:
-        #for path in CO_counties:  # ['Rio_Grande/43086']:
-        for id in [options.countyids]:
+        if options.countyids == "53335":
+            ids = CO_counties_2014
+        else:
+            ids = [options.countyids]
+
+        for id in ids:  # ['Rio_Grande/43086']:
             path = "%s/%s" % (options.state, id)
-            morePaths = retrieve(path, db)
+            morePaths = retrieve(path, db, options)
 
             for countyPath in morePaths:
                 path = "%s/%s" % (options.state, countyPath)
-                retrieve(path, db)
+                retrieve(path, db, options)
 
     db.close()
 
-def retrieve(path, db):
+def retrieve(path, db, options):
     """
     retrieve the given paths from clarity, and put in db if there is new data.
     return any possible future paths to fetch
@@ -401,26 +487,32 @@ def retrieve(path, db):
 
     urlprefix = "http://results.enr.clarityelections.com/"
 
+    logging.info("Fetch redirect for %s from %s" % (path, urlprefix + path))
     stream = urllib.urlopen(urlprefix + path)
-    logging.debug("Fetch redirect for %s" % path)
 
     redirect_html = stream.read()
     logging.debug("Redirect text: %s" % redirect_html)
 
     match = version_re.search(redirect_html)
-    version = match.group('version')
+        
+    if match:
+        version = match.group('version')
+    else:
+        logging.error("No version number in %s" % urlprefix + path)
+        return []
+
     try:
         logging.debug("Match for version: %s" % version)
-        summary_url = urlprefix + "%s/%s/en/summary.html" % (path, version)
+        summary_url = urlprefix + "%s/%s%s/en/summary.html" % (path, version, options.urlformat)
         # => e.g.  http://results.enr.clarityelections.com/CO/Boulder/43040/110810/en/summary.html
         csvz_url = urlprefix + "%s/%s/reports/summary.zip" % (path, version)
         # http://results.enr.clarityelections.com/CO/51557/138497/en/select-county.html
-        select_county_url = urlprefix + "%s/%s/en/select-county.html" % (path, version)
+        select_county_url = urlprefix + "%s/%s%s/en/select-county.html" % (path, version, options.urlformat)
 
     except:
         logging.error("No match for %s" % path)
 
-    logging.info("Full url: %s" % summary_url)
+    logging.info("Full summary url: %s" % summary_url)
 
     summary_filen = path.replace("/", "-") + "-" + str(version) + "/en/summary.html"
     csvz_filen = path.replace("/", "-") + "-" + str(version) + "/reports/summary.zip"
@@ -431,7 +523,11 @@ def retrieve(path, db):
         # Get existing data
         logging.info("Already have summary, length %d, url: %s" % (len(summary), summary_filen))
         csvz = db[csvz_filen]
-        lastupdated_ts = db.get(version, (None))[0]
+        lastupdated_field = db.get(version, None)
+        if lastupdated_field:
+            lastupdated_ts = lastupdated_field[0]
+        else:
+            lastupdated_ts = "unknown"
 
     else:
         logging.info("Retrieving summary file: %s from %s" % (summary_filen, summary_url))
@@ -449,8 +545,10 @@ def retrieve(path, db):
             lastupdated = match.group('lastupdated')
             lastupdated_ts = dateutil.parser.parse(lastupdated)
         except Exception, e:
-            logging.error("No lastupdated on url '%s':\n %s" % (summary_url, e))
-            return []
+            logging.error("No lastupdated on url '%s':\nFile:\n%s" % (summary_url, e))
+            logging.debug("No lastupdated on url '%s':\nFile:\n%s\n %s" % (summary_url, summary, e))
+            print("returning after error")
+            lastupdated_ts = datetime.isoformat(datetime.now()) + " retrieved"
 
         db[version] = (str(lastupdated_ts), summary_filen)
 
@@ -476,10 +574,11 @@ def retrieve(path, db):
         logging.info("Get select-county.html at %s" % select_county_url)
         countyList = urllib.urlopen(select_county_url).read()
 
-        print countyList
+        logging.debug("countyList = %s" % countyList)
 
-        counties = re.finditer(county_re, countyList)
-        print "finditer type %s" % type(counties)
+        counties = re.findall(county_re, countyList)
+        if len(counties) == 0:
+            logging.error("Didn't find any counties in select-county.html:\n%s" % countyList)
 
         for m in counties:
             (county, id) = m.groups()
@@ -487,9 +586,9 @@ def retrieve(path, db):
             print "found %s" % countyPath
             morePaths.append(countyPath)
 
-        return morePaths
+    return morePaths
 
-        """
+    """
         nextBegin = 0
         nextCountyIndex = countyList.find("javascript:a")
         
