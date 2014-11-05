@@ -4,12 +4,10 @@ Parses xml election results file from clarity, and saves data in database
 (by default, ~/.config/electionaudits/clarity in Berkely DB format).
 
 Usage:
-For each new election, update county "url path" see below.
+ mine_election.py -c 'Boulder/43040'
 
-Get any new county results and archive them in the database.
+Gets any new county results and archives them in the database.
 This will skip any for which we already have an up-to-date dump, and print what was gotten.
-
- mine_election.py -c
 
 Files:
  summary.html          Container with "Last updated" timestamp, overall "Ballots Cast", but no contest results
@@ -38,6 +36,8 @@ wr.write(wash)
 wr.close()
 
 TODO:
+configure it to handle multiple elections - e.g. give it url of state-wide, and figure out counties, use one database per election
+
 Get other formats of data also
 
 Produce auditing data: raw margin, diluted margin, auditing required
@@ -109,22 +109,28 @@ import re
 from collections import Counter
 import lxml.etree as ET
 import shelve
+from zipfile import ZipFile
+from pprint import pprint
+from StringIO import StringIO
 
 __version__ = "0.1.0"
 
 parser = OptionParser(prog="template.py", version=__version__)
 
-parser.add_option("-s", "--storage",
+parser.add_option("-d", "--database",
   default=os.path.expanduser("~/.config/electionaudits/clarity"),
-  help="storage file name for persistence of data")
+  help="file name for persistent data storage")
 
-parser.add_option("-d", "--debuglevel",
+parser.add_option("-D", "--debuglevel",
   type="int", default=logging.WARNING,
   help="Set logging level to debuglevel: DEBUG=10, INFO=20,\n WARNING=30 (the default), ERROR=40, CRITICAL=50")
 
-parser.add_option("-c", "--county",
-  action="store_true", default=False,
-  help="Retrieve county reports")
+parser.add_option("-s", "--state",
+  default='CO',
+  help="State portion of clarity path, e.g. 'CO'")
+
+parser.add_option("-c", "--countyids",
+  help="Retrieve county results reported at this clarity URL path, e.g. 'Boulder/43040'")
 
 # incorporate OptionParser usage documentation in our docstring
 __doc__ = __doc__.replace("%InsertOptionParserUsage%\n", parser.format_help())
@@ -201,7 +207,8 @@ def xpath_unique(parent, path):
 
 # The url path for county results changes for each election.  Get it e.g. via copy-paste and edit from the html source for
 #  http://results.enr.clarityelections.com/CO/48370/122717/en/select-county.html
-# 
+#  For examples from around the county via http://www.reddit.com/domain/results.enr.clarityelections.com see /srv/voting/colorado/clarity-urls
+#  Search e.g.: site:results.enr.clarityelections.com 2014 general election 
 
 # First one, with no county name, is the CO state level
 CO_counties_2012 = [
@@ -360,14 +367,17 @@ def main(parser):
 
     logging.debug("options: %s; args: %s", options, args)
 
-    print("Using database: %s" % options.storage)
+    print("Using database: %s" % options.database)
 
-    db = shelve.open(options.storage)
+    db = shelve.open(options.database)
 
-    if options.county:
-        #for path in ['Rio_Grande/43086']:
-        for path in CO_counties:  # ['Rio_Grande/43086']:
-            stream = urllib.urlopen("http://results.enr.clarityelections.com/CO/" + path)
+    if options.countyids:
+        urlprefix = "http://results.enr.clarityelections.com/"
+
+        #for path in CO_counties:  # ['Rio_Grande/43086']:
+        for id in [options.countyids]:
+            path = "%s/%s" % (options.state, id)
+            stream = urllib.urlopen(urlprefix + path)
             logging.debug("Fetch redirect for %s" % path)
 
             redirect_html = stream.read()
@@ -379,29 +389,35 @@ def main(parser):
                 logging.debug("Match for version: %s" % version)
                 zip_url = "http://results.enr.clarityelections.com/CO/%s/%s/reports/summary.zip" % (path, version)
                 # => e.g.  http://results.enr.clarityelections.com/CO/Boulder/43040/110810/en/summary.html
-                summary_url = "http://results.enr.clarityelections.com/CO/%s/%s/en/summary.html" % (path, version)
-                csv_url = "http://results.enr.clarityelections.com/CO/%s/%s/reports/summary.zip" % (path, version)
+                summary_url = "http://results.enr.clarityelections.com/%s/%s/en/summary.html" % (path, version)
+                csvz_url = "http://results.enr.clarityelections.com/%s/%s/reports/summary.zip" % (path, version)
             except:
                 logging.error("No match for %s" % path)
 
             logging.info("Full url: %s" % zip_url)
-            #zip_filen = path.replace("/", "-") + "-" + str(version) + ".zip"
-            #zip_file = ZipFile(urllib.urlopen(zip_url, zip_filen))
             
             summary_filen = path.replace("/", "-") + "-" + str(version) + "/en/summary.html"
-            csv_filen = path.replace("/", "-") + "-" + str(version) + "reports/summary.zip"
+            csvz_filen = path.replace("/", "-") + "-" + str(version) + "/reports/summary.zip"
 
             summary = db.get(summary_filen, None)
-            if not summary:
-                logging.info("Retrieving file: %s" % summary_filen)
+
+            if summary:
+                logging.info("Already have summary, length %d, url: %s" % (len(summary), summary_filen))
+                csvz = db[csvz_filen]
+                lastupdated_ts = db.get(version, (None))[0]
+
+            else:
+                logging.info("Retrieving summary file: %s from %s" % (summary_filen, summary_url))
                 summary = urllib.urlopen(summary_url).read()
                 db[summary_filen] = summary
+                logging.info("summary file length: %d" % len(summary))
+                logging.log(5, "summary file: %s" % summary)
 
-                logging.info("Retrieving csv file: %s" % csv_url)
-                csv = urllib.urlopen(csv_url).read()
-                db[csv_filen] = csv
+                logging.info("Retrieving csvz file: %s" % csvz_url)
+                csvz = urllib.urlopen(csvz_url).read()
+                db[csvz_filen] = csvz
 
-                match = re.search(r'Last updated[^;]*;(?P<lastupdated>[^<]*)<', summary)
+                match = re.search(r'ast updated[^;]*;(?P<lastupdated>[^<]*)<', summary)
                 try:
                     lastupdated = match.group('lastupdated')
                     lastupdated_ts = dateutil.parser.parse(lastupdated)
@@ -410,7 +426,24 @@ def main(parser):
                     continue
 
                 db[version] = (str(lastupdated_ts), summary_filen)
-                print version, db[version]
+
+            print "Version: %s, updated %s, file %s" % (version, str(lastupdated_ts), summary_filen)
+            
+            zipf = StringIO(csvz)
+            files = ZipFile(zipf, "r")
+            for f in files.namelist():
+                logging.debug("  file: %s" % f)
+                if f != "summary.csv":
+                    logging.error("Error - got file named %s in zip file, not summary.csv" % f)
+                csvf = files.open(f)
+                csv = csvf.read()
+                logging.debug("  file length: %d" % len(csv))
+                
+            logging.log(5, "csv file:\n%s" % csv)
+
+            # old    zip_filen = path.replace("/", "-") + "-" + str(version) + ".zip"
+            # old bs zip_file = ZipFile(zip_url, zip_filen)
+
 
     if False:
         detail_xml = open(detail_xml_name)
