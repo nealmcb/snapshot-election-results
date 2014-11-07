@@ -42,7 +42,9 @@ figure out how to get county lists for Web01 style - for now get them by hand:
 work with both new-style (Web01) and old-style clarity urls
 figure out how to find last-updated for Web01 style
 
-add a way to re-fetch stuff, or add etag checking or ??
+add etag checking, maybe last-modified-since to lower bandwidth demands
+ any more efficient way to get version info than fetching redirect?
+add a way to re-fetch stuff, or 
 
 Get other formats of data also
 
@@ -69,6 +71,15 @@ add function / option to summarize db - range of timestamps, # entries etc.  do 
 
 /srv/voting/colorado/2012/detail.xml
 
+Example data
+summary.zip csv file:
+
+"line number","contest name","choice name","party name","total votes","percent of votes","registered voters","ballots cast","num County total","num County rptg","over votes","under votes"
+1,"UNITED STATES SENATOR","Mark Udall","DEM",782549,44.52,2047458,1681230,64,39,"0","0"
+2,"UNITED STATES SENATOR","Cory Gardner","REP",880925,50.12,2047458,1681230,64,39,"0","0"
+3,"UNITED STATES SENATOR","Gaylon Kent","LIB",43431,2.47,2047458,1681230,64,39,"0","0"
+
+detail.xml file:
 /ElectionResult/Contest/Choice/@totalVotes
         <Choice key="10" text="Yes" totalVotes="1307728">
             <VoteType name="Total Votes" votes="1307728">
@@ -129,6 +140,7 @@ import shelve
 from zipfile import ZipFile
 from pprint import pprint
 from StringIO import StringIO
+import dbhash
 
 __version__ = "0.1.0"
 
@@ -149,6 +161,9 @@ parser.add_option("-s", "--state",
 parser.add_option("-c", "--countyids",
   help="Retrieve county results reported at this clarity URL path, e.g. 'Boulder/43040'")
 
+parser.add_option("-f", "--find",
+  help="Find given regular expression in csv files")
+
 parser.add_option("-u", "--urlformat",
   default="/Web01",
   help="Format of urls")
@@ -168,7 +183,8 @@ class Residual(object):
         return "residual: %5.2f\t%s" % (100.0 - (100.0 * self.total / self.ballotsCast), self.name)
 
 def residuals(root):
-    "yield a Residual object for each contest under root, with info on residuals etc"
+    """Determine residual / falloff / undervote + overvote rate from the xml election results file.
+    Yield a Residual object for each contest under root, with info on residuals etc"""
 
     ballotsCast = int(xpath_unique(root, '//ElectionResult/ElectionVoterTurnout/@ballotsCast'))
     ballots_by_county = {}
@@ -458,7 +474,7 @@ def main(parser):
 
     logging.debug("options: %s; args: %s", options, args)
 
-    print("Using database: %s" % options.database)
+    logging.log(60, "Start at %s.  Using database: %s" % (datetime.isoformat(datetime.now()), options.database))
 
     db = shelve.open(options.database)
 
@@ -476,6 +492,24 @@ def main(parser):
             for countyPath in morePaths:
                 path = "%s/%s" % (options.state, countyPath)
                 retrieve(path, db, options)
+
+    if options.find:
+        for k, v in db.iteritems():
+            if "CO-5" in k  and  "summary.zip" in k:
+                print "key: %s" % k
+
+                zipf = StringIO(v)
+                files = ZipFile(zipf, "r")
+                for f in files.namelist():
+                    logging.debug("  file: %s" % f)
+                    if f != "summary.csv":
+                        logging.error("Error - got file named %s in zip file, not summary.csv" % f)
+                    csvf = files.open(f)
+                    csv = csvf.read()
+
+                    matches = re.finditer(options.find, csv)
+                    for m in matches:
+                        print m.groups()
 
     db.close()
 
@@ -530,7 +564,7 @@ def retrieve(path, db, options):
             lastupdated_ts = "unknown"
 
     else:
-        logging.info("Retrieving summary file: %s from %s" % (summary_filen, summary_url))
+        logging.critical("Retrieving new results from %s" % summary_url)
         summary = urllib.urlopen(summary_url).read()
         db[summary_filen] = summary
         logging.info("summary file length: %d" % len(summary))
@@ -547,12 +581,11 @@ def retrieve(path, db, options):
         except Exception, e:
             logging.error("No lastupdated on url '%s':\nFile:\n%s" % (summary_url, e))
             logging.debug("No lastupdated on url '%s':\nFile:\n%s\n %s" % (summary_url, summary, e))
-            print("returning after error")
             lastupdated_ts = datetime.isoformat(datetime.now()) + " retrieved"
 
         db[version] = (str(lastupdated_ts), summary_filen)
 
-    print "Version: %s, updated %s, file %s" % (version, str(lastupdated_ts), summary_filen)
+    logging.info("Version: %s, updated %s, file %s" % (version, str(lastupdated_ts), summary_filen))
 
     zipf = StringIO(csvz)
     files = ZipFile(zipf, "r")
@@ -568,41 +601,26 @@ def retrieve(path, db, options):
 
     morePaths = []
 
-    print "path = %s" % path[3:]
-
     if "/" not in path[3:]:
         logging.info("Get select-county.html at %s" % select_county_url)
         countyList = urllib.urlopen(select_county_url).read()
 
-        logging.debug("countyList = %s" % countyList)
+        logging.log(5, "countyList = %s" % countyList)
 
         counties = re.findall(county_re, countyList)
         if len(counties) == 0:
             logging.error("Didn't find any counties in select-county.html:\n%s" % countyList)
 
-        for m in counties:
-            (county, id) = m.groups()
+        for (county, id) in counties:
             countyPath = "%s/%s" % (county, id)
-            print "found %s" % countyPath
+            logging.debug("found county %s" % countyPath)
             morePaths.append(countyPath)
 
-    return morePaths
-
-    """
-        nextBegin = 0
-        nextCountyIndex = countyList.find("javascript:a")
-        
-        while nextCountyIndex != -1:
-            countyIndex = countyList.rfind('value="/', nextBegin, nextCountyIndex)
-            
-            morePaths.append()
+    if False:
+        """
+        Work with xml format objects, find ballotCast, residuals of 
         """
 
-    # old    zip_filen = path.replace("/", "-") + "-" + str(version) + ".zip"
-    # old bs zip_file = ZipFile(zip_url, zip_filen)
-
-
-    if False:
         detail_xml = open(detail_xml_name)
         root = ET.parse(detail_xml).getroot()
 
@@ -629,6 +647,10 @@ def retrieve(path, db, options):
         print "Residual %      Votes    Ballots  County name"
         for c in sorted(p.by_county.values(), key=lambda c: c.residual):
             print "%10.2f %10d %10d  %s" % (c.residual, c.total, c.ballotsCast, c.name)
+
+    time.sleep(1)
+
+    return morePaths
 
 """
 print "temporarily init root for interactive examination of detail.xml (from )"
