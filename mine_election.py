@@ -1,7 +1,9 @@
 #!/usr/bin/python
-"""mine_election.py: mine election data for falloff / residual rate, etc
-Parses xml election results file from clarity, and saves data in database
+"""mine_election.py: archive election data and mine it for falloff / residual rate, and other data.
+stores summary and csv files in database
 (by default, ~/.config/electionaudits/clarity in Berkely DB format).
+
+not working: Parses xml election results file from clarity, and saves data in database
 
 Usage:
  mine_election.py -c 'Boulder/43040'
@@ -19,6 +21,11 @@ Note that the summary.html file doesn't include the actual contest results.
 But it does contain a "Last updated" timestamp and a "Ballots Cast" which can
 be higher than even the 'ballots cast' column of a county-wide contest in the summary.csv.
 That is typically because property owner ballots don't have county-wide races on them.
+
+The url path for county results changes for each election.  Get it e.g. via copy-paste and edit from the html source for
+ http://results.enr.clarityelections.com/CO/48370/122717/en/select-county.html
+ For examples from around the county via http://www.reddit.com/domain/results.enr.clarityelections.com see /srv/voting/colorado/clarity-urls
+ Search e.g.: site:results.enr.clarityelections.com 2014 general election 
 
 %InsertOptionParserUsage%
 
@@ -39,7 +46,10 @@ TODO:
 figure out how to get county lists for Web01 style - for now get them by hand:
    navigate to 'counties reporting' tab, save file, grep `id="precinctsreporting', clean up with emacs macros
 
-work with both new-style (Web01) and old-style clarity urls
+store a single class per version, rather than 3 db entries.
+ and convert from old to new format when noticed
+
+work more transparently with both new-style (Web01) and old-style clarity urls
 figure out how to find last-updated for Web01 style
 
 add etag checking, maybe last-modified-since to lower bandwidth demands
@@ -52,15 +62,8 @@ Produce auditing data: raw margin, diluted margin, auditing required
 
 Use shove for better reliability and cloud or git storage : Python Package Index https://pypi.python.org/pypi/shove/0.5.6
 
-Check state-wide info
-Get data from other jurisdictions:
- http://results.enr.clarityelections.com/FL/Dade/42008/113201/en/summary.html
- http://results.enr.clarityelections.com/FL/Martin/42442/112876/en/summary.html
- http://results.enr.clarityelections.com/FL/Orange/43105/112625/en/summary.html
- http://results.enr.clarityelections.com/NJ/Cape_May/48214/122334/en/summary.html
- search e.g. FL site:results.enr.clarityelections.com
+Check state-wide info vs county aggregates
 
-clean up retrieval of csvs.  they're really zips.  write decoding, dumping sw.
 add function / option to summarize db - range of timestamps, # entries etc.  do so after normal runs
 
  print summary of contents of database
@@ -107,11 +110,13 @@ which is really intended for
   http://results.enr.clarityelections.com/CO/Boulder/43040/110810/en/summary.html
 and the csv report at e.g.
   http://results.enr.clarityelections.com/CO/Rio_Grande/43086/111231/reports/summary.zip
+
 ----
  <html><head>
                     <script src="./110810/js/version.js" type="text/javascript"></script>
                     <script type="text/javascript">TemplateRedirect("summary.html","./110810", "", "");</script>
                     </head></html>
+----
 
 Sample data from select-county.html
 ...
@@ -120,8 +125,6 @@ Sample data from select-county.html
 <li><a id="Alamosa" value="/Alamosa/51561/index.html" href="javascript:a('Alamosa');">Alamosa</a></li>
 <li><a id="Arapahoe" value="/Arapahoe/51559/index.html" href="javascript:a('Arapahoe');">Arapahoe</a></li>
 ....
-
-----
 
 """
 
@@ -242,10 +245,7 @@ def xpath_unique(parent, path):
         print("Error: path %s found %d times in %s" % (path, nnodes, root))
     return nodes[0]
 
-# The url path for county results changes for each election.  Get it e.g. via copy-paste and edit from the html source for
-#  http://results.enr.clarityelections.com/CO/48370/122717/en/select-county.html
-#  For examples from around the county via http://www.reddit.com/domain/results.enr.clarityelections.com see /srv/voting/colorado/clarity-urls
-#  Search e.g.: site:results.enr.clarityelections.com 2014 general election 
+# Results for some states, e.g. Colorado 2014 general, no longer have a list of county ids listed, so do it by hand....
 
 # First one, with no county name, is the CO state level
 CO_counties_2012 = [
@@ -522,7 +522,12 @@ def retrieve(path, db, options):
     urlprefix = "http://results.enr.clarityelections.com/"
 
     logging.info("Fetch redirect for %s from %s" % (path, urlprefix + path))
-    stream = urllib.urlopen(urlprefix + path)
+    url = urlprefix + path
+    try:
+        stream = urllib.urlopen(url)
+    except Exception, e:
+         logging.error("urllib error on url '%s':\n %s" % (url, e))
+         return []
 
     redirect_html = stream.read()
     logging.debug("Redirect text: %s" % redirect_html)
@@ -532,7 +537,7 @@ def retrieve(path, db, options):
     if match:
         version = match.group('version')
     else:
-        logging.error("No version number in %s" % urlprefix + path)
+        logging.error("No version number in %s" % url)
         return []
 
     try:
@@ -579,7 +584,7 @@ def retrieve(path, db, options):
             lastupdated = match.group('lastupdated')
             lastupdated_ts = dateutil.parser.parse(lastupdated)
         except Exception, e:
-            logging.error("No lastupdated on url '%s':\nFile:\n%s" % (summary_url, e))
+            logging.info("No lastupdated on url '%s':\nFile:\n%s" % (summary_url, e))
             logging.debug("No lastupdated on url '%s':\nFile:\n%s\n %s" % (summary_url, summary, e))
             lastupdated_ts = datetime.isoformat(datetime.now()) + " retrieved"
 
@@ -609,7 +614,7 @@ def retrieve(path, db, options):
 
         counties = re.findall(county_re, countyList)
         if len(counties) == 0:
-            logging.error("Didn't find any counties in select-county.html:\n%s" % countyList)
+            logging.warning("Didn't find any counties in select-county.html:\n%s" % countyList)
 
         for (county, id) in counties:
             countyPath = "%s/%s" % (county, id)
