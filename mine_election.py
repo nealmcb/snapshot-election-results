@@ -43,6 +43,16 @@ wr.write(wash)
 wr.close()
 
 TODO:
+add option to pick downloads (multiple files), via county name, or state-wide
+ then make new object with timestamp and csv from that download
+  (later collect data that way, add more files perhaps)
+
+add option to dump various kinds of info from observations:
+ write out csv (perhaps named with county and timestamp)
+ timestamp and size of csv
+ find data in csv or whatever
+ print # ballots, turnout (% of registered)
+
 figure out how to get county lists for Web01 style - for now get them by hand:
    navigate to 'counties reporting' tab, save file, grep `id="precinctsreporting', clean up with emacs macros
 
@@ -494,6 +504,7 @@ def main(parser):
                 retrieve(path, db, options)
 
     if options.find:
+        print "find: '%s'" % options.find
         for k, v in db.iteritems():
             if "CO-5" in k  and  "summary.zip" in k:
                 print "key: %s" % k
@@ -614,7 +625,7 @@ def retrieve(path, db, options):
 
         counties = re.findall(county_re, countyList)
         if len(counties) == 0:
-            logging.warning("Didn't find any counties in select-county.html:\n%s" % countyList)
+            logging.info("Didn't find any counties in select-county.html:\n%s" % countyList)
 
         for (county, id) in counties:
             countyPath = "%s/%s" % (county, id)
