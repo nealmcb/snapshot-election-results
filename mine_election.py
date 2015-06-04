@@ -496,11 +496,11 @@ def main(parser):
             ids = [options.countyids]
 
         for id in ids:  # ['Rio_Grande/43086']:
-            path = "%s/%s" % (options.state, id)
+            path = "%s/%s/" % (options.state, id)
             morePaths = retrieve(path, db, options)
 
             for countyPath in morePaths:
-                path = "%s/%s" % (options.state, countyPath)
+                path = "%s/%s/" % (options.state, countyPath)
                 retrieve(path, db, options)
 
     if options.find:
