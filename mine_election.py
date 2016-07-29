@@ -43,6 +43,9 @@ wr.write(wash)
 wr.close()
 
 TODO:
+ see https://github.com/openelections/clarify
+   Clarify offers an interface for discovering the locations of those zip files and another for parsing the XML versions of the data contained within them.
+
 add option to pick downloads (multiple files), via county name, or state-wide
  then make new object with timestamp and csv from that download
   (later collect data that way, add more files perhaps)
