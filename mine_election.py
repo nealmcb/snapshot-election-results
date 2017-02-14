@@ -8,6 +8,11 @@ not working: Parses xml election results file from clarity, and saves data in da
 Usage:
  mine_election.py -c 'Boulder/43040'
 
+ mine_election.py -c '63746'  #full state, but a hack via hard-coding of that number I guess....  FIXME
+
+ debug:
+ ./mine_election.py -D 10 -c 63746 2>&1 | tee -a ~/.config/electionaudits/clarity-log
+
 Gets any new county results and archives them in the database.
 This will skip any for which we already have an up-to-date dump, and print what was gotten.
 
@@ -27,6 +32,11 @@ The url path for county results changes for each election.  Get it e.g. via copy
  For examples from around the county via http://www.reddit.com/domain/results.enr.clarityelections.com see /srv/voting/colorado/clarity-urls
  Search e.g.: site:results.enr.clarityelections.com 2014 general election 
 
+ 2016 - huh... get 404 for http://results.enr.clarityelections.com/CO/63746/179927/en/select-county.html
+ not sure. this works:
+   http://results.enr.clarityelections.com/CO/Boulder/63754/179820/Web01/en/summary.html
+ ERROR:root:No version number in http://results.enr.clarityelections.com/CO/Boulder/179927/
+
 %InsertOptionParserUsage%
 
 For now, to look at data, analyze csv, use ~/py/notebooks/corla.ipynb
@@ -43,7 +53,12 @@ wr.write(wash)
 wr.close()
 
 TODO:
- see https://github.com/openelections/clarify
+ Update method for getting current version of data, ala
+    http://results.enr.clarityelections.com/CO/63746/current_ver.txt?rnd=0.8333623006146083
+   See:    Add support for current_ver · Issue #16 · openelections/clarify
+     https://github.com/openelections/clarify/issues/16
+
+ Leverage Clarify API: https://github.com/openelections/clarify
    Clarify offers an interface for discovering the locations of those zip files and another for parsing the XML versions of the data contained within them.
 
 add option to pick downloads (multiple files), via county name, or state-wide
@@ -467,7 +482,12 @@ CO_counties_2014 = [
  'Yuma/53400',
 ]
 
-CO_counties = CO_counties_2014
+CO_counties_2016 = [
+ '63746',
+ 'Boulder/179927',
+]
+
+CO_counties = CO_counties_2016
 
 version_re = re.compile(r'summary.html","\./(?P<version>[\d]*)"')
 county_re = re.compile(r'value="/(?P<county>[^/]*)/(?P<id>[^/]*)/index.html')
@@ -495,6 +515,8 @@ def main(parser):
     if options.countyids:
         if options.countyids == "53335":
             ids = CO_counties_2014
+        elif options.countyids == "63746":
+            ids = CO_counties_2016
         else:
             ids = [options.countyids]
 
