@@ -55,7 +55,7 @@ wr.close()
 TODO:
  Update method for getting current version of data, ala
     http://results.enr.clarityelections.com/CO/63746/current_ver.txt?rnd=0.8333623006146083
-   See:    Add support for current_ver · Issue #16 · openelections/clarify
+   See:  Add support for current_ver Issue #16  openelections/clarify
      https://github.com/openelections/clarify/issues/16
 
  Leverage Clarify API: https://github.com/openelections/clarify
