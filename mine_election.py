@@ -43,9 +43,16 @@ For now, to look at data, analyze csv, use ~/py/notebooks/corla.ipynb
 
 or....
 
+import shelve
+
 db = shelve.open("/home/neal/.config/electionaudits/clarity")
 len(db.keys())
 db.keys()
+
+value = db['CO-Teller-71863--190947/reports/summary.zip']
+with open('/tmp/value.zip', 'w') as f:
+    f.write(value)
+
 arap = db['Arapahoe-48372-123238reports/summary.zip']
 wash = db['Washington-48433-122703reports/summary.zip']
 wr = open('/tmp/wash.zip', 'w')
@@ -168,11 +175,11 @@ import re
 from collections import Counter
 import lxml.etree as ET
 import shelve
+import zipfile
 from zipfile import ZipFile
 from pprint import pprint
 from StringIO import StringIO
 import dbhash
-
 __version__ = "0.1.0"
 
 parser = OptionParser(prog="template.py", version=__version__)
@@ -196,8 +203,12 @@ parser.add_option("-f", "--find",
   help="Find given regular expression in csv files")
 
 parser.add_option("-u", "--urlformat",
-  default="/Web01",
+  default="/Web02",
   help="Format of urls")
+
+parser.add_option("--dumpkeys", action='store_true',
+  help="Dump keys in given database")
+
 
 # incorporate OptionParser usage documentation in our docstring
 __doc__ = __doc__.replace("%InsertOptionParserUsage%\n", parser.format_help())
@@ -487,9 +498,98 @@ CO_counties_2016 = [
  'Boulder/179927',
 ]
 
-CO_counties = CO_counties_2016
+CO_counties_2017 = [
+ '71802',
+ 'Adams/71805',
+ 'Archuleta/71807',
+ 'Boulder/71810',
+ 'Clear_Creek/71814',
+ 'Crowley/71817',
+ 'Denver/71820',
+ 'El_Paso/71825',
+ 'Garfield/71827',
+ 'Huerfano/71832',
+ 'Kiowa/71834',
+ 'Lake/71836',
+ 'Lincoln/71840',
+ 'Moffat/71844',
+ 'Morgan/71847',
+ 'Park/71850',
+ 'Prowers/71853',
+ 'Rio_Grande/71856',
+ 'San_Juan/71859',
+ 'Summit/71862',
+ 'Yuma/71867',
+ 'Alamosa/71806',
+ 'Baca/71808',
+ 'Broomfield/71811',
+ 'Conejos/71815',
+ 'Custer/71818',
+ 'Douglas/71822',
+ 'Elbert/71824',
+ 'Gilpin/71828',
+ 'Jackson/71833',
+ 'Kit_Carson/71835',
+ 'Larimer/71838',
+ 'Logan/71841',
+ 'Montezuma/71845',
+ 'Otero/71848',
+ 'Phillips/71851',
+ 'Pueblo/71854',
+ 'Routt/71857',
+ 'San_Miguel/71860',
+ 'Teller/71863',
+ 'Arapahoe/71804',
+ 'Bent/71809',
+ 'Chaffee/71812',
+ 'Costilla/71816',
+ 'Delta/71819',
+ 'Eagle/71823',
+ 'La_Plata/71837',
+ 'Fremont/71826',
+ 'Gunnison/71830',
+ 'Jefferson/71803',
+ 'La_Plata/71837',
+ 'Las_Animas/71839',
+ 'Mesa/71842',
+ 'Montrose/71846',
+ 'Ouray/71849',
+ 'Pitkin/71852',
+ 'Rio_Blanco/71855',
+ 'Saguache/71858',
+ 'Sedgwick/71861',
+ 'Weld/71866',
+]
 
-version_re = re.compile(r'summary.html","\./(?P<version>[\d]*)"')
+CO_counties = CO_counties_2017
+
+# Example of TemplateRedirect seen with Web02 in Colorado in 2017
+# From curl http://results.enr.clarityelections.com/CO/71802/
+"""
+< html > < head >
+< script
+type = "text/javascript" > var
+TemplateRedirect = function(page, eVersion, templateType, mobiletemplateType)
+{
+    window.location.href = templateType + "/" + page;
+}
+< / script >
+< script
+type = "text/javascript" > TemplateRedirect("", "./190184", "Web02", "Mobile01"); < / script >
+< / head > < / html >
+
+"""
+
+def dumpkeys(options):
+    "Print all the keys in the given database"
+
+    for k, v in dbhash.open(options.database).iteritems():
+        if k.endswith('html'):
+           print k
+
+
+version_re = re.compile(r'\./(?P<version>[\d]*)", "Web02"')
+old_version_re = re.compile(r'summary.html","\./(?P<version>[\d]*)"')
 county_re = re.compile(r'value="/(?P<county>[^/]*)/(?P<id>[^/]*)/index.html')
 
 def main(parser):
@@ -511,18 +611,28 @@ def main(parser):
 
     db = shelve.open(options.database)
 
+    if options.dumpkeys:
+        print("Saved items: %d" % len(db.keys()))
+        print('\n'.join(db.keys()))
+        sys.exit(0)
+
     # ~/py/mine_election.py -D 20 -c 53704 -d clarity-KY-2014 2>&1 | tee -a 53704.out
     if options.countyids:
-        if options.countyids == "53335":
+        if options.countyids == "71802":
+            ids = CO_counties_2017
+        elif options.countyids == "53335":
             ids = CO_counties_2014
         elif options.countyids == "63746":
             ids = CO_counties_2016
         else:
             ids = [options.countyids]
 
-        for id in ids:  # ['Rio_Grande/43086']:
+        logging.debug("ids: %s" % ids)
+        for id in ids:  # ['Rio_Grande/43086']:   2017: http://results.enr.clarityelections.com/CO/Boulder/71810/Web02/#/
+            logging.debug("id: %s" % id)
             path = "%s/%s/" % (options.state, id)
             morePaths = retrieve(path, db, options)
+            logging.debug("morePaths: %s" % morePaths)
 
             for countyPath in morePaths:
                 path = "%s/%s/" % (options.state, countyPath)
@@ -620,7 +730,7 @@ def retrieve(path, db, options):
             lastupdated = match.group('lastupdated')
             lastupdated_ts = dateutil.parser.parse(lastupdated)
         except Exception, e:
-            logging.info("No lastupdated on url '%s':\nFile:\n%s" % (summary_url, e))
+            logging.info("No lastupdated on url '%s': %s" % (summary_url, e))
             logging.debug("No lastupdated on url '%s':\nFile:\n%s\n %s" % (summary_url, summary, e))
             lastupdated_ts = datetime.isoformat(datetime.now()) + " retrieved"
 
@@ -629,7 +739,12 @@ def retrieve(path, db, options):
     logging.info("Version: %s, updated %s, file %s" % (version, str(lastupdated_ts), summary_filen))
 
     zipf = StringIO(csvz)
-    files = ZipFile(zipf, "r")
+    try:
+        files = ZipFile(zipf, "r")
+    except zipfile.BadZipfile as e:
+        logging.debug("retrieve for %s: %s" % (path, e))
+        return []
+
     for f in files.namelist():
         logging.debug("  file: %s" % f)
         if f != "summary.csv":
