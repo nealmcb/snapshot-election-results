@@ -3,6 +3,9 @@
 stores summary and csv files in database
 (by default, ~/.config/electionaudits/clarity in Berkely DB format).
 
+Beware:
+  The shelve module does not support concurrent read/write access to shelved objects. (Multiple simultaneous read accesses are safe.) When a program has a shelf open for writing, no other program should have it open for reading or writing. Unix file locking can be used to solve this, but this differs across Unix versions and requires knowledge about the database implementation used.
+
 not working: Parses xml election results file from clarity, and saves data in database
 
 Usage:
@@ -175,8 +178,8 @@ import re
 from collections import Counter
 import lxml.etree as ET
 import shelve
+import bsddb
 import zipfile
-from zipfile import ZipFile
 from pprint import pprint
 from StringIO import StringIO
 import dbhash
@@ -197,7 +200,7 @@ parser.add_option("-s", "--state",
   help="State portion of clarity path, e.g. 'CO'")
 
 parser.add_option("-c", "--countyids",
-  help="Retrieve county results reported at this clarity URL path, e.g. 'Boulder/43040'")
+  help="Retrieve county results reported at this clarity URL path, e.g. 'Boulder/43040', or all counties for certain kludged state ids like '71802' for Colorado 2017-11")
 
 parser.add_option("-f", "--find",
   help="Find given regular expression in csv files")
@@ -208,6 +211,9 @@ parser.add_option("-u", "--urlformat",
 
 parser.add_option("--dumpkeys", action='store_true',
   help="Dump keys in given database")
+
+parser.add_option("-e", "--export", action='store_true',
+  help="Export csv files from each zip file")
 
 
 # incorporate OptionParser usage documentation in our docstring
@@ -609,7 +615,7 @@ def main(parser):
 
     logging.log(60, "Start at %s.  Using database: %s" % (datetime.isoformat(datetime.now()), options.database))
 
-    db = shelve.open(options.database)
+    db = shelve.open(options.database)  # Consider second option 'r': opening read-only, for query-only options
 
     if options.dumpkeys:
         print("Saved items: %d" % len(db.keys()))
@@ -629,7 +635,6 @@ def main(parser):
 
         logging.debug("ids: %s" % ids)
         for id in ids:  # ['Rio_Grande/43086']:   2017: http://results.enr.clarityelections.com/CO/Boulder/71810/Web02/#/
-            logging.debug("id: %s" % id)
             path = "%s/%s/" % (options.state, id)
             morePaths = retrieve(path, db, options)
             logging.debug("morePaths: %s" % morePaths)
@@ -640,12 +645,15 @@ def main(parser):
 
     if options.find:
         print "find: '%s'" % options.find
-        for k, v in db.iteritems():
-            if "CO-5" in k  and  "summary.zip" in k:
+        try:
+          for k, v in db.iteritems():
+            logging.debug("  key: %s" % k)
+
+            if "CO-7" in k  and  "summary.zip" in k:
                 print "key: %s" % k
 
                 zipf = StringIO(v)
-                files = ZipFile(zipf, "r")
+                files = zipfile.ZipFile(zipf, "r")
                 for f in files.namelist():
                     logging.debug("  file: %s" % f)
                     if f != "summary.csv":
@@ -656,6 +664,41 @@ def main(parser):
                     matches = re.finditer(options.find, csv)
                     for m in matches:
                         print m.groups()
+        except (ValueError, bsddb.db.DBPageNotFoundError) as e:
+            logging.critical("Error: %s", e, exc_info=True)
+
+    if options.export:
+        print("export")
+        try:
+          for k, v in db.iteritems():
+            logging.debug("  key: %s" % k)
+
+            if "summary.zip" in k:
+                print "zip key: %s" % k
+
+                csvfilename = "%s-summary.csv" % k.split('/')[0]
+
+                zipf = StringIO(v)
+
+                try:
+                  files = zipfile.ZipFile(zipf, "r")
+                  for f in files.namelist():
+                    logging.debug("  file: %s" % f)
+                    if f != "summary.csv":
+                        logging.error("Error - got file named %s in zip file, not summary.csv" % f)
+                    csvf = files.open(f)
+                    csv = csvf.read()
+
+                    with open(csvfilename, 'w') as f:
+                        f.write(csv)
+                except zipfile.BadZipfile as e:
+                    logging.critical("Error on %s: %s" % (k, e))
+                    unkfilename = "%s-summary.unk" % k.split('/')[0]
+                    with open(unkfilename, 'w') as f:
+                        f.write(v)
+
+        except (ValueError, bsddb.db.DBPageNotFoundError) as e:
+            logging.critical("Error: %s", e, exc_info=True)
 
     db.close()
 
@@ -740,7 +783,7 @@ def retrieve(path, db, options):
 
     zipf = StringIO(csvz)
     try:
-        files = ZipFile(zipf, "r")
+        files = zipfile.ZipFile(zipf, "r")
     except zipfile.BadZipfile as e:
         logging.debug("retrieve for %s: %s" % (path, e))
         return []
