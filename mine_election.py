@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """mine_election.py: archive election data and mine it for falloff / residual rate, and other data.
-stores summary and csv files in database
-(by default, ~/.config/electionaudits/clarity in Berkely DB format).
+stores summary and zipped csv files in database
+(by default, ~/.config/electionaudits/clarity.bdb in Berkely DB format).
 
 Beware:
   The shelve module does not support concurrent read/write access to shelved objects. (Multiple simultaneous read accesses are safe.) When a program has a shelf open for writing, no other program should have it open for reading or writing. Unix file locking can be used to solve this, but this differs across Unix versions and requires knowledge about the database implementation used.
@@ -13,7 +13,10 @@ Usage:
 
  mine_election.py -c '63746'  #full state, but a hack via hard-coding of that number I guess....  FIXME
 
+ mine_election -d database.bdb --dumpkeys | grep zip
+
  debug:
+ ./mine_election.py -D 10 -c Broomfield/75619 -d /tmp/test.bdb tee -a ~/.config/electionaudits/tests/test.log
  ./mine_election.py -D 10 -c 63746 2>&1 | tee -a ~/.config/electionaudits/clarity-log
 
 Gets any new county results and archives them in the database.
@@ -21,7 +24,8 @@ This will skip any for which we already have an up-to-date dump, and print what 
 
 Files:
  summary.html          Container with "Last updated" timestamp, overall "Ballots Cast", but no contest results
- summary.zip archive   Just a summary.csv file in it, with contest results
+ summary.zip           Just one file, summary.csv, in it, with contest results
+ summary.csv           CSV format contest results
  sum.json              Contest results in JSON format - used by javascript in summary.html
    e.g. http://results.enr.clarityelections.com/CO/Arapahoe/48372/123238/json/sum.json
 
@@ -30,10 +34,31 @@ But it does contain a "Last updated" timestamp and a "Ballots Cast" which can
 be higher than even the 'ballots cast' column of a county-wide contest in the summary.csv.
 That is typically because property owner ballots don't have county-wide races on them.
 
-The url path for county results changes for each election.  Get it e.g. via copy-paste and edit from the html source for
+The url path for county results changes for each election
+
+Get them by hand e.g. copy-paste and edit from the html source for
  http://results.enr.clarityelections.com/CO/48370/122717/en/select-county.html
- For examples from around the county via http://www.reddit.com/domain/results.enr.clarityelections.com see /srv/voting/colorado/clarity-urls
- Search e.g.: site:results.enr.clarityelections.com 2014 general election 
+or....
+ visit main page: http://results.enr.clarityelections.com/CO/75610/Web02-state.206999/#/
+ click "select county", get map and links below that
+ Test with one of them, e.g.  mine_election -D 10 -c Broomfield/75619 -d /tmp/test.bdb
+  compare with ~/.config/electionaudits/test/test2017.out
+ google chrome dev tools inspect; select html at top; right click; copy element;
+ save clipboard in a file ~/.config/electionaudits/clarity-2018-primary/select-county-inspected.html
+  cobble together an emacs keyboard to pull numbers for urls out from there
+  search for adams/
+  find elements like <a href="http://results.enr.clarityelections.com/CO/Adams/75613/" ng-href="http://results.enr.clarityelections.com/CO/Adams/75613/" ng-click="commonsCtrl.toggleClass('html', 'main-nav-xs-active'); commonsCtrl.cleanMenuClasses(); commonsCtrl.toggleShowMobileMenu(true);" class="submenu-map-county01 ng-binding" data-ng-bind-html="county.split('|')[0]" target="_blank">Adams</a>
+ navigate to just before adams there
+ run keyboard macro extract_mine_election_url for each county
+ first, or later, fix trailing slashes
+ http://results.enr.clarityelections.com/CO/75610/Web02-state.206999/#/access-to-races
+
+ Add to the if/elsif code as a convenient shortcut. E.g.
+        elif options.countyids == "CO2018P":
+            ids = CO_counties_2018_P
+
+For examples from around the county via http://www.reddit.com/domain/results.enr.clarityelections.com see /srv/voting/colorado/clarity-urls
+ Google Search e.g.: site:results.enr.clarityelections.com 2014 general election
 
  2016 - huh... get 404 for http://results.enr.clarityelections.com/CO/63746/179927/en/select-county.html
  not sure. this works:
@@ -43,12 +68,13 @@ The url path for county results changes for each election.  Get it e.g. via copy
 %InsertOptionParserUsage%
 
 For now, to look at data, analyze csv, use ~/py/notebooks/corla.ipynb
+   see file:///home/neal/py/notebooks/corla.html
 
 or....
 
 import shelve
 
-db = shelve.open("/home/neal/.config/electionaudits/clarity")
+db = shelve.open("/home/neal/.config/electionaudits/clarity.bdb")
 len(db.keys())
 db.keys()
 
@@ -63,6 +89,8 @@ wr.write(wash)
 wr.close()
 
 TODO:
+ Character set of csv files seems to be iso-8859-1. Produce UTF-8 output.
+
  Update method for getting current version of data, ala
     http://results.enr.clarityelections.com/CO/63746/current_ver.txt?rnd=0.8333623006146083
    See:  Add support for current_ver Issue #16  openelections/clarify
@@ -188,7 +216,7 @@ __version__ = "0.1.0"
 parser = OptionParser(prog="template.py", version=__version__)
 
 parser.add_option("-d", "--database",
-  default=os.path.expanduser("~/.config/electionaudits/clarity"),
+  default=os.path.expanduser("~/.config/electionaudits/clarity.bdb"),
   help="file name for persistent data storage")
 
 parser.add_option("-D", "--debuglevel",
@@ -290,7 +318,7 @@ def xpath_unique(parent, path):
         print("Error: path %s found %d times in %s" % (path, nnodes, root))
     return nodes[0]
 
-# Results for some states, e.g. Colorado 2014 general, no longer have a list of county ids listed, so do it by hand....
+# Results for some states, e.g. Colorado 2014 general, no longer have a list of county ids listed, so do it by hand (see above)
 
 # First one, with no county name, is the CO state level
 CO_counties_2012 = [
@@ -567,7 +595,76 @@ CO_counties_2017 = [
  'Weld/71866',
 ]
 
-CO_counties = CO_counties_2017
+CO_counties_2018_P = [
+ '75610',
+ 'Adams/75613',
+ 'Adams/75613',
+ 'Alamosa/75614',
+ 'Arapahoe/75612',
+ 'Archuleta/75615',
+ 'Baca/75616',
+ 'Bent/75617',
+ 'Boulder/75618',
+ 'Broomfield/75619',
+ 'Chaffee/75620',
+ 'Cheyenne/75621',
+ 'Clear_Creek/75622',
+ 'Conejos/75623',
+ 'Costilla/75624',
+ 'Crowley/75625',
+ 'Custer/75626',
+ 'Delta/75627',
+ 'Denver/75628',
+ 'Dolores/75629',
+ 'Douglas/75630',
+ 'Eagle/75631',
+ 'El_Paso/75633',
+ 'Elbert/75632',
+ 'Fremont/75634',
+ 'Garfield/75635',
+ 'Gilpin/75636',
+ 'Grand/75637',
+ 'Gunnison/75638',
+ 'Hinsdale/75639',
+ 'Huerfano/75640',
+ 'Jackson/75641',
+ 'Jefferson/75611',
+ 'Kiowa/75642',
+ 'Kit_Carson/75643',
+ 'La_Plata/75645',
+ 'Lake/75644',
+ 'Larimer/75646',
+ 'Las_Animas/75647',
+ 'Lincoln/75648',
+ 'Logan/75649',
+ 'Mesa/75650',
+ 'Mineral/75651',
+ 'Moffat/75652',
+ 'Montezuma/75653',
+ 'Montrose/75654',
+ 'Morgan/75655',
+ 'Otero/75656',
+ 'Ouray/75657',
+ 'Park/75658',
+ 'Phillips/75659',
+ 'Pitkin/75660',
+ 'Prowers/75661',
+ 'Pueblo/75662',
+ 'Rio_Blanco/75663',
+ 'Rio_Grande/75664',
+ 'Routt/75665',
+ 'Saguache/75666',
+ 'San_Juan/75667',
+ 'San_Miguel/75668',
+ 'Sedgwick/75669',
+ 'Summit/75670',
+ 'Teller/75671',
+ 'Washington/75673',
+ 'Weld/75674',
+ 'Yuma/75675',
+]
+
+CO_counties = CO_counties_2018_P
 
 # Example of TemplateRedirect seen with Web02 in Colorado in 2017
 # From curl http://results.enr.clarityelections.com/CO/71802/
@@ -624,14 +721,16 @@ def main(parser):
 
     # ~/py/mine_election.py -D 20 -c 53704 -d clarity-KY-2014 2>&1 | tee -a 53704.out
     if options.countyids:
-        if options.countyids == "71802":
-            ids = CO_counties_2017
-        elif options.countyids == "53335":
+        if options.countyids == "CO2014":
             ids = CO_counties_2014
-        elif options.countyids == "63746":
+        elif options.countyids == "CO2017":
+            ids = CO_counties_2017
+        elif options.countyids == "CO2016":
             ids = CO_counties_2016
+        elif options.countyids == "CO2018P":
+            ids = CO_counties_2018_P
         else:
-            ids = [options.countyids]
+            ids = [options.countyids] # for a single county
 
         logging.debug("ids: %s" % ids)
         for id in ids:  # ['Rio_Grande/43086']:   2017: http://results.enr.clarityelections.com/CO/Boulder/71810/Web02/#/
@@ -710,7 +809,7 @@ def retrieve(path, db, options):
 
     urlprefix = "http://results.enr.clarityelections.com/"
 
-    logging.info("Fetch redirect for %s from %s" % (path, urlprefix + path))
+    logging.info("Try to find a redirect for %s from %s" % (path, urlprefix + path))
     url = urlprefix + path
     try:
         stream = urllib.urlopen(url)
@@ -726,8 +825,19 @@ def retrieve(path, db, options):
     if match:
         version = match.group('version')
     else:
-        logging.error("No version number in %s" % url)
-        return []
+        # 2018 changes: ERROR:root:No version number in http://results.enr.clarityelections.com/CO/75610/
+        # 2018 now putting version number in http://results.enr.clarityelections.com/CO/Adams/75613/current-ver.txt
+        #   so what is .../versions.txt - odd
+
+        logging.info("Try current_ver.txt for %s from %s" % (path, urlprefix + path))
+        url = urlprefix + path + "/current_ver.txt"
+        try:
+            stream = urllib.urlopen(url)
+            version = stream.read()
+            logging.debug("version string: %s" % version)
+        except Exception, e:
+             logging.error("urllib error on url '%s':\n %s" % (url, e))
+             return []
 
     try:
         logging.debug("Match for version: %s" % version)
@@ -785,11 +895,11 @@ def retrieve(path, db, options):
     try:
         files = zipfile.ZipFile(zipf, "r")
     except zipfile.BadZipfile as e:
-        logging.debug("retrieve for %s: %s" % (path, e))
+        logging.debug("retrieval error for zip file %s for %s: %s" % (csvz_url, path, e))
         return []
 
     for f in files.namelist():
-        logging.debug("  file: %s" % f)
+        logging.debug("  zip file member: %s" % f)
         if f != "summary.csv":
             logging.error("Error - got file named %s in zip file, not summary.csv" % f)
         csvf = files.open(f)
