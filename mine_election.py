@@ -240,6 +240,9 @@ parser.add_option("-u", "--urlformat",
 parser.add_option("--dumpkeys", action='store_true',
   help="Dump keys in given database")
 
+parser.add_option("--dumpcsvs", action='store_true',
+  help="Dump csvs in given database to files in current directory")
+
 parser.add_option("-e", "--export", action='store_true',
   help="Export csv files from each zip file")
 
@@ -691,6 +694,32 @@ def dumpkeys(options):
            print k
 
 
+def zip_to_csv(db, summary_zip_key):
+    """Given the database of reports
+    and a key for the "...summary.zip" zip file containing the summary.csv of interest,
+    extract the summary.csv and save it as a csv file in the current directory.
+    """
+
+    try:
+        zipentry = db[summary_zip_key]
+        zipf = zipfile.ZipFile(StringIO(zipentry))
+        csvsumfile = zipf.open('summary.csv')
+        csvfilename = summary_zip_key[:summary_zip_key.index("/")] + "-summary.csv"
+        logging.debug("save csv to %s" % csvfilename)
+        with open(csvfilename, "wb") as csvfile:
+            csvfile.write(csvsumfile.read())
+    except zipfile.BadZipfile as e:
+        logging.critical("Error on %s: %s" % (summary_zip_key, e))
+
+def dumpcsvs(options, db):
+    "Export all the CSV files in the given database"
+
+    for k, v in db.iteritems():
+        if k.endswith('.zip'):
+            logging.debug("unzip %s" % k)
+            zip_to_csv(db, k)
+
+
 version_re = re.compile(r'\./(?P<version>[\d]*)", "Web02"')
 old_version_re = re.compile(r'summary.html","\./(?P<version>[\d]*)"')
 county_re = re.compile(r'value="/(?P<county>[^/]*)/(?P<id>[^/]*)/index.html')
@@ -717,6 +746,10 @@ def main(parser):
     if options.dumpkeys:
         print("Saved items: %d" % len(db.keys()))
         print('\n'.join(db.keys()))
+        sys.exit(0)
+
+    if options.dumpcsvs:
+        dumpcsvs(options, db)
         sys.exit(0)
 
     # ~/py/mine_election.py -D 20 -c 53704 -d clarity-KY-2014 2>&1 | tee -a 53704.out
