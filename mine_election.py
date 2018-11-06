@@ -41,13 +41,11 @@ Get them by hand e.g. copy-paste and edit from the html source for
 or....
  visit main page: http://results.enr.clarityelections.com/CO/75610/Web02-state.206999/#/
  click "select county", get map and links below that
- Test with one of them, e.g.  mine_election -D 10 -c Broomfield/75619 -d /tmp/test.bdb
-  compare with ~/.config/electionaudits/test/test2017.out
+ Test with one of them, e.g.  mine_election -D 10 -c Broomfield/75619 -d /tmp/test.bdb > /tmp/mt
+  compare with ~/.config/electionaudits/tests/test2017.out
  google chrome dev tools inspect; select html at top; right click; copy element;
  save clipboard in a file ~/.config/electionaudits/clarity-2018-primary/select-county-inspected.html
-  cobble together an emacs keyboard to pull numbers for urls out from there
-  search for adams/
-  find elements like <a href="http://results.enr.clarityelections.com/CO/Adams/75613/" ng-href="http://results.enr.clarityelections.com/CO/Adams/75613/" ng-click="commonsCtrl.toggleClass('html', 'main-nav-xs-active'); commonsCtrl.cleanMenuClasses(); commonsCtrl.toggleShowMobileMenu(true);" class="submenu-map-county01 ng-binding" data-ng-bind-html="county.split('|')[0]" target="_blank">Adams</a>
+  search for adams/ i.e.  find elements like <a href="http://results.enr.clarityelections.com/CO/Adams/75613/" ng-href="http://results.enr.clarityelections.com/CO/Adams/75613/" ng-click="commonsCtrl.toggleClass('html', 'main-nav-xs-active'); commonsCtrl.cleanMenuClasses(); commonsCtrl.toggleShowMobileMenu(true);" class="submenu-map-county01 ng-binding" data-ng-bind-html="county.split('|')[0]" target="_blank">Adams</a>
  navigate to just before adams there
  run keyboard macro extract_mine_election_url for each county
  first, or later, fix trailing slashes
@@ -601,7 +599,6 @@ CO_counties_2017 = [
 CO_counties_2018_P = [
  '75610',
  'Adams/75613',
- 'Adams/75613',
  'Alamosa/75614',
  'Arapahoe/75612',
  'Archuleta/75615',
@@ -667,7 +664,75 @@ CO_counties_2018_P = [
  'Yuma/75675',
 ]
 
-CO_counties = CO_counties_2018_P
+CO_counties_2018 = [
+ '91808',
+ 'Adams/91811/',
+ 'Alamosa/91812/',
+ 'Arapahoe/91810/',
+ 'Archuleta/91813/',
+ 'Baca/91814/',
+ 'Bent/91815/',
+ 'Boulder/91816/',
+ 'Broomfield/91817/',
+ 'Chaffee/91818/',
+ 'Cheyenne/91819/',
+ 'Clear_Creek/91820/',
+ 'Conejos/91821/',
+ 'Costilla/91822/',
+ 'Crowley/91823/',
+ 'Custer/91824/',
+ 'Delta/91825/',
+ 'Denver/91826/',
+ 'Dolores/91827/',
+ 'Douglas/91828/',
+ 'Eagle/91829/',
+ 'El_Paso/91831/',
+ 'Elbert/91830/',
+ 'Fremont/91832/',
+ 'Garfield/91833/',
+ 'Gilpin/91834/',
+ 'Grand/91835/',
+ 'Gunnison/91836/',
+ 'Hinsdale/91837/',
+ 'Huerfano/91838/',
+ 'Jackson/91839/',
+ 'Jefferson/91809/',
+ 'Kiowa/91840/',
+ 'Kit_Carson/91841/',
+ 'La_Plata/91843/',
+ 'Lake/91842/',
+ 'Larimer/91844/',
+ 'Las_Animas/91845/',
+ 'Lincoln/91846/',
+ 'Logan/91847/',
+ 'Mesa/91848/',
+ 'Mineral/91849/',
+ 'Moffat/91850/',
+ 'Montezuma/91851/',
+ 'Montrose/91852/',
+ 'Morgan/91853/',
+ 'Otero/91854/',
+ 'Ouray/91855/',
+ 'Park/91856/',
+ 'Phillips/91857/',
+ 'Pitkin/91858/',
+ 'Prowers/91859/',
+ 'Pueblo/91860/',
+ 'Rio_Blanco/91861/',
+ 'Rio_Grande/91862/',
+ 'Routt/91863/',
+ 'Saguache/91864/',
+ 'San_Juan/91865/',
+ 'San_Miguel/91866/',
+ 'Sedgwick/91867/',
+ 'Summit/91868/',
+ 'Teller/91869/',
+ 'Washington/91871/',
+ 'Weld/91872/',
+ 'Yuma/91873/',
+]
+
+CO_counties = CO_counties_2018
 
 # Example of TemplateRedirect seen with Web02 in Colorado in 2017
 # From curl http://results.enr.clarityelections.com/CO/71802/
@@ -762,6 +827,8 @@ def main(parser):
             ids = CO_counties_2016
         elif options.countyids == "CO2018P":
             ids = CO_counties_2018_P
+        elif options.countyids == "CO2018":
+            ids = CO_counties_2018
         else:
             ids = [options.countyids] # for a single county
 
