@@ -15,6 +15,14 @@ Usage:
 
  mine_election -d database.bdb --dumpkeys | grep zip
 
+Example of dumping all the csv files, including perennial error since Boulder doesn't upload
+ cp -p ../clarity-2018.bdb ./clarity-2018-copy.bdb
+ mkdir dumpcsvs-test
+ cd dumpcsvs-test
+ ~/py/mine_election.py -d ../clarity-2018-copy.bdb --dumpcsvs
+    CRITICAL:root:Error on CO-Boulder-91816---216293/reports/summary.zip: File is not a zip file 
+ ls         # see all the csvs
+
  debug:
  ./mine_election.py -D 10 -c Broomfield/75619 -d /tmp/test.bdb tee -a ~/.config/electionaudits/tests/test.log
  ./mine_election.py -D 10 -c 63746 2>&1 | tee -a ~/.config/electionaudits/clarity-log
@@ -34,7 +42,12 @@ But it does contain a "Last updated" timestamp and a "Ballots Cast" which can
 be higher than even the 'ballots cast' column of a county-wide contest in the summary.csv.
 That is typically because property owner ballots don't have county-wide races on them.
 
-The url path for county results changes for each election
+Configuration updates for a new election:
+
+The url path for county results changes for each election. If the defaults here are changed appropriately
+as shown below, and ~/bin/mine_current_election is also updated, it can be used ala
+
+$ while true; do mine_current_election ; sleep 500; done
 
 Get them by hand e.g. copy-paste and edit from the html source for
  http://results.enr.clarityelections.com/CO/48370/122717/en/select-county.html
@@ -750,14 +763,6 @@ type = "text/javascript" > TemplateRedirect("", "./190184", "Web02", "Mobile01")
 < / head > < / html >
 
 """
-
-def dumpkeys(options):
-    "Print all the keys in the given database"
-
-    for k, v in dbhash.open(options.database).iteritems():
-        if k.endswith('html'):
-           print k
-
 
 def zip_to_csv(db, summary_zip_key):
     """Given the database of reports
