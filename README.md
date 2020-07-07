@@ -3,6 +3,12 @@
 The goal of this repository is to help gather snapshots of election results
 data and archive it for analysis.
 
+## Related work
+See [openelections/clarify](https://github.com/openelections/clarify)
+(_Discover and parse results for jurisdictions that use Clarity\-based election systems_)
+for a much cleaner set of code to do related things.
+
+## Usage
 Currently it contains the `mine_election.py` script, written in Python.
 That currently only supports pulling results data from Clarify,
 SOE Software's Clarity Election Night Reporting system, originally developed,
