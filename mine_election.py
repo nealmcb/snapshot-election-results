@@ -16,14 +16,21 @@ Usage:
  mine_election -d database.bdb --dumpkeys | grep zip
 
 Example of dumping all the csv files, including perennial error since Boulder doesn't upload
- cp -p ../clarity-2018.bdb ./clarity-2018-copy.bdb
  mkdir dumpcsvs-test
  cd dumpcsvs-test
- ~/py/mine_election.py -d ../clarity-2018-copy.bdb --dumpcsvs
+ cp -p ../../clarity-2018.bdb clarity-2018-copy.bdb
+ ~/py/mine_election.py -d clarity-2018-copy.bdb --dumpcsvs
     CRITICAL:root:Error on CO-Boulder-91816---216293/reports/summary.zip: File is not a zip file 
  ls         # see all the csvs
 
- debug:
+To get timestamp for a given csv file:
+ Parse out version number from csv filename, e.g. 216316 for CO-Morgan-91853---216316/reports/summary.zip
+ look up db['216316']
+ See:
+  ('2018-11-05T18:11:45.868662 retrieved',
+   'CO-Morgan-91853---216316/en/summary.html')
+
+To debug:
  ./mine_election.py -D 10 -c Broomfield/75619 -d /tmp/test.bdb tee -a ~/.config/electionaudits/tests/test.log
  ./mine_election.py -D 10 -c 63746 2>&1 | tee -a ~/.config/electionaudits/clarity-log
 
@@ -100,6 +107,11 @@ wr.write(wash)
 wr.close()
 
 TODO:
+ Print error message when db open fails
+
+ Fix fact that html is all the same, just a wordy "The requested page was not found."
+  either find a useful html file, or don't save them
+
  Character set of csv files seems to be iso-8859-1. Produce UTF-8 output.
 
  Update method for getting current version of data, ala
