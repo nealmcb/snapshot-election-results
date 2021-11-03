@@ -941,7 +941,7 @@ def retrieve(path, db, options):
          logging.error("urllib error on url '%s':\n %s" % (url, e))
          return []
 
-    redirect_html = stream.read()
+    redirect_html = stream.read().decode('utf-8')
     logging.debug("Redirect text: %s" % redirect_html)
 
     match = version_re.search(redirect_html)
