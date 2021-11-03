@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 """mine_election.py: archive election data and mine it for falloff / residual rate, and other data.
 stores summary and zipped csv files in database
 (by default, ~/.config/electionaudits/clarity.bdb in Berkely DB format).
@@ -216,6 +216,7 @@ Sample data from select-county.html
 ....
 
 """
+from __future__ import print_function
 
 import sys
 import os
@@ -229,7 +230,7 @@ import re
 from collections import Counter
 import lxml.etree as ET
 import shelve
-import bsddb
+import bsddb3 as bsddb
 import zipfile
 from pprint import pprint
 from StringIO import StringIO
@@ -308,7 +309,7 @@ def residuals(root):
         by_county = {}
         for name, votes in votes_by_county.items():
             if votes > ballots_by_county[name]:
-                print "Warning: votes > ballots (%d vs %d) in %s for %s" % (votes, ballots_by_county[name], name, contest_name)
+                print("Warning: votes > ballots (%d vs %d) in %s for %s" % (votes, ballots_by_county[name], name, contest_name))
             by_county[name] = Residual(name = name,
                                       total = votes,
                                       ballotsCast = ballots_by_county[name],
@@ -860,13 +861,13 @@ def main(parser):
                 retrieve(path, db, options)
 
     if options.find:
-        print "find: '%s'" % options.find
+        print("find: '%s'" % options.find)
         try:
           for k, v in db.iteritems():
             logging.debug("  key: %s" % k)
 
             if "CO-7" in k  and  "summary.zip" in k:
-                print "key: %s" % k
+                print("key: %s" % k)
 
                 zipf = StringIO(v)
                 files = zipfile.ZipFile(zipf, "r")
@@ -879,7 +880,7 @@ def main(parser):
 
                     matches = re.finditer(options.find, csv)
                     for m in matches:
-                        print m.groups()
+                        print(m.groups())
         except (ValueError, bsddb.db.DBPageNotFoundError) as e:
             logging.critical("Error: %s", e, exc_info=True)
 
@@ -890,7 +891,7 @@ def main(parser):
             logging.debug("  key: %s" % k)
 
             if "summary.zip" in k:
-                print "zip key: %s" % k
+                print("zip key: %s" % k)
 
                 csvfilename = "%s-summary.csv" % k.split('/')[0]
 
@@ -930,7 +931,7 @@ def retrieve(path, db, options):
     url = urlprefix + path
     try:
         stream = urllib.urlopen(url)
-    except Exception, e:
+    except Exception as e:
          logging.error("urllib error on url '%s':\n %s" % (url, e))
          return []
 
@@ -952,7 +953,7 @@ def retrieve(path, db, options):
             stream = urllib.urlopen(url)
             version = stream.read()
             logging.debug("version string: %s" % version)
-        except Exception, e:
+        except Exception as e:
              logging.error("urllib error on url '%s':\n %s" % (url, e))
              return []
 
@@ -999,7 +1000,7 @@ def retrieve(path, db, options):
         try:
             lastupdated = match.group('lastupdated')
             lastupdated_ts = dateutil.parser.parse(lastupdated)
-        except Exception, e:
+        except Exception as e:
             logging.info("No lastupdated on url '%s': %s" % (summary_url, e))
             logging.debug("No lastupdated on url '%s':\nFile:\n%s\n %s" % (summary_url, summary, e))
             lastupdated_ts = datetime.isoformat(datetime.now()) + " retrieved"
@@ -1054,7 +1055,7 @@ def retrieve(path, db, options):
         timestamp = xpath_unique(root, '//ElectionResult/Timestamp').text
         ballotsCast = int(xpath_unique(root, '//ElectionResult/ElectionVoterTurnout/@ballotsCast'))
 
-        print "Election Name: %s\nTimestamp: %s\nBallots Cast: %d\n" % (electionName, timestamp, ballotsCast)
+        print("Election Name: %s\nTimestamp: %s\nBallots Cast: %d\n" % (electionName, timestamp, ballotsCast))
 
         resid = list(residuals(root))
 
@@ -1062,7 +1063,7 @@ def retrieve(path, db, options):
         top_resid = [r for r in resid if r.residual <= 70.0]
 
         for r in sorted(top_resid, key=lambda r: r.residual):
-            print r
+            print(r)
 
         contests = {}
         for r in resid:
@@ -1070,9 +1071,9 @@ def retrieve(path, db, options):
 
         p = contests['PRESIDENT AND VICE PRESIDENT']
 
-        print "Residual %      Votes    Ballots  County name"
+        print("Residual %      Votes    Ballots  County name")
         for c in sorted(p.by_county.values(), key=lambda c: c.residual):
-            print "%10.2f %10d %10d  %s" % (c.residual, c.total, c.ballotsCast, c.name)
+            print("%10.2f %10d %10d  %s" % (c.residual, c.total, c.ballotsCast, c.name))
 
     time.sleep(1)
 
