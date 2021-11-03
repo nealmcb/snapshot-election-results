@@ -217,7 +217,13 @@ Sample data from select-county.html
 
 """
 from __future__ import print_function
+from __future__ import division
 
+from future import standard_library
+standard_library.install_aliases()
+from builtins import str
+from builtins import object
+from past.utils import old_div
 import sys
 import os
 import logging
@@ -225,7 +231,7 @@ from optparse import OptionParser
 import time
 from datetime import datetime
 import dateutil.parser
-import urllib
+import urllib.request, urllib.parse, urllib.error
 import re
 from collections import Counter
 import lxml.etree as ET
@@ -233,8 +239,8 @@ import shelve
 import bsddb3 as bsddb
 import zipfile
 from pprint import pprint
-from StringIO import StringIO
-import dbhash
+from io import StringIO
+#import dbm.bsd
 __version__ = "0.1.0"
 
 parser = OptionParser(prog="template.py", version=__version__)
@@ -279,11 +285,11 @@ detail_xml_name="/srv/voting/colorado/2012/detail.xml"
 class Residual(object):
     def __init__(self, **attributes):
         "Store all values offered"
-        for k, v in attributes.items():
+        for k, v in list(attributes.items()):
             setattr(self, k, v)
 
     def __str__(self):
-        return "residual: %5.2f\t%s" % (100.0 - (100.0 * self.total / self.ballotsCast), self.name)
+        return "residual: %5.2f\t%s" % (100.0 - (old_div(100.0 * self.total, self.ballotsCast)), self.name)
 
 def residuals(root):
     """Determine residual / falloff / undervote + overvote rate from the xml election results file.
@@ -307,18 +313,18 @@ def residuals(root):
                 votes_by_county[county.attrib['name']] += int(county.attrib['votes'])
 
         by_county = {}
-        for name, votes in votes_by_county.items():
+        for name, votes in list(votes_by_county.items()):
             if votes > ballots_by_county[name]:
                 print("Warning: votes > ballots (%d vs %d) in %s for %s" % (votes, ballots_by_county[name], name, contest_name))
             by_county[name] = Residual(name = name,
                                       total = votes,
                                       ballotsCast = ballots_by_county[name],
-                                      residual = 100 - (100.0 * votes / ballots_by_county[name]) )
+                                      residual = 100 - (old_div(100.0 * votes, ballots_by_county[name])) )
 
         yield(Residual(name = contest_name,
                       total = total,
                       ballotsCast = ballotsCast,
-                      residual = 100.0 - (100.0 * total / ballotsCast),
+                      residual = 100.0 - (old_div(100.0 * total, ballotsCast)),
                       by_county = by_county ))
 
 
@@ -797,7 +803,7 @@ def zip_to_csv(db, summary_zip_key):
 def dumpcsvs(options, db):
     "Export all the CSV files in the given database"
 
-    for k, v in db.iteritems():
+    for k, v in db.items():
         if k.endswith('.zip'):
             logging.debug("unzip %s" % k)
             zip_to_csv(db, k)
@@ -827,8 +833,8 @@ def main(parser):
     db = shelve.open(options.database)  # Consider second option 'r': opening read-only, for query-only options
 
     if options.dumpkeys:
-        print("Saved items: %d" % len(db.keys()))
-        print('\n'.join(db.keys()))
+        print("Saved items: %d" % len(list(db.keys())))
+        print('\n'.join(list(db.keys())))
         sys.exit(0)
 
     if options.dumpcsvs:
@@ -863,7 +869,7 @@ def main(parser):
     if options.find:
         print("find: '%s'" % options.find)
         try:
-          for k, v in db.iteritems():
+          for k, v in db.items():
             logging.debug("  key: %s" % k)
 
             if "CO-7" in k  and  "summary.zip" in k:
@@ -887,7 +893,7 @@ def main(parser):
     if options.export:
         print("export")
         try:
-          for k, v in db.iteritems():
+          for k, v in db.items():
             logging.debug("  key: %s" % k)
 
             if "summary.zip" in k:
@@ -930,7 +936,7 @@ def retrieve(path, db, options):
     logging.info("Try to find a redirect for %s from %s" % (path, urlprefix + path))
     url = urlprefix + path
     try:
-        stream = urllib.urlopen(url)
+        stream = urllib.request.urlopen(url)
     except Exception as e:
          logging.error("urllib error on url '%s':\n %s" % (url, e))
          return []
@@ -950,7 +956,7 @@ def retrieve(path, db, options):
         logging.info("Try current_ver.txt for %s from %s" % (path, urlprefix + path))
         url = urlprefix + path + "/current_ver.txt"
         try:
-            stream = urllib.urlopen(url)
+            stream = urllib.request.urlopen(url)
             version = stream.read()
             logging.debug("version string: %s" % version)
         except Exception as e:
@@ -987,13 +993,13 @@ def retrieve(path, db, options):
 
     else:
         logging.critical("Retrieving new results from %s" % summary_url)
-        summary = urllib.urlopen(summary_url).read()
+        summary = urllib.request.urlopen(summary_url).read()
         db[summary_filen] = summary
         logging.info("summary file length: %d" % len(summary))
         logging.log(5, "summary file: %s" % summary)
 
         logging.info("Retrieving csvz file: %s" % csvz_url)
-        csvz = urllib.urlopen(csvz_url).read()
+        csvz = urllib.request.urlopen(csvz_url).read()
         db[csvz_filen] = csvz
 
         match = re.search(r'ast updated[^;]*;(?P<lastupdated>[^<]*)<', summary)
@@ -1030,7 +1036,7 @@ def retrieve(path, db, options):
 
     if "/" not in path[3:]:
         logging.info("Get select-county.html at %s" % select_county_url)
-        countyList = urllib.urlopen(select_county_url).read()
+        countyList = urllib.request.urlopen(select_county_url).read()
 
         logging.log(5, "countyList = %s" % countyList)
 
@@ -1072,7 +1078,7 @@ def retrieve(path, db, options):
         p = contests['PRESIDENT AND VICE PRESIDENT']
 
         print("Residual %      Votes    Ballots  County name")
-        for c in sorted(p.by_county.values(), key=lambda c: c.residual):
+        for c in sorted(list(p.by_county.values()), key=lambda c: c.residual):
             print("%10.2f %10d %10d  %s" % (c.residual, c.total, c.ballotsCast, c.name))
 
     time.sleep(1)
