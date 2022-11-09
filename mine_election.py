@@ -11,6 +11,8 @@ not working: Parses xml election results file from clarity, and saves data in da
 Usage:
  mine_election.py -c 'Boulder/43040'
 
+ mine_election.py -e -c 'Boulder/43040'  # also extract e.g. CO-Boulder-115912--308267-summary.csv
+
  mine_election.py -c '63746'  #full state, but a hack via hard-coding of that number I guess....  FIXME
 
  mine_election -d database.bdb --dumpkeys | grep zip
@@ -59,9 +61,38 @@ $ while true; do mine_current_election ; sleep 500; done
 As of 2022 primary, not clear if county-level details are available
 for state-level data, start by noticing that state points to
   https://results.enr.clarityelections.com/CO/113964/
-so start with testing and/or debug output from
-  mine_election -D 10 -c 113964 -d /tmp/testco2.bdb > /tmp/mt
-  and note current_ver works, which could lead to
+pursue testing and/or debug output from
+  mine_election -D 10 -c 113964 -d /tmp/testco2.bdb > config0.out 2>&1
+
+start with
+ cd ~/.config/electionaudits/2022/
+
+official URL 2022-general: https://results.enr.clarityelections.com/CO/115903/web.307039/#/summary
+
+  and note current_ver path element works, which could lead to
+   https://results.enr.clarityelections.com/CO/115903/current_ver.txt?rnd=0.8333623006146083
+   => 308345 !
+
+   => https://results.enr.clarityelections.com/CO/115903/308345/reports/summary.zip   ???
+
+  fails:
+   $ wget https://results.enr.clarityelections.com/CO/115903/308345/reports/summary.zip 
+   --2022-11-08 17:52:38--  https://results.enr.clarityelections.com/CO/115903/308345/reports/summary.zip 
+   Resolving results.enr.clarityelections.com (results.enr.clarityelections.com)... 108.156.245.31, 108.156.245.102, 108.156.245.27, ... 
+   Connecting to results.enr.clarityelections.com (results.enr.clarityelections.com)|108.156.245.31|:443... connected. 
+   HTTP request sent, awaiting response... 403 Forbidden 
+   2022-11-08 17:52:38 ERROR 403: Forbidden.
+
+   but works in Chrome!
+   try User-Agent mimicing chrome browser?
+     Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36
+
+  Resolving results.enr.clarityelections.com (results.enr.clarityelections.com)... 108.156.245.31, 108.156.245.102, 108.156.245.27, ...
+  Connecting to results.enr.clarityelections.com (results.enr.clarityelections.com)|108.156.245.31|:443... connected.
+  HTTP request sent, awaiting response... 403 Forbidden
+  2022-11-08 17:52:38 ERROR 403: Forbidden.
+
+
    https://results.enr.clarityelections.com//CO//113964/300298/reports/summary.zip
 vs https://results.enr.clarityelections.com/CO/113964//300378/en/summary.html
  may also benefit from an update - look for code like this:  urlRed = originalUrlArray[0] + 'web.285569'+ 
@@ -69,16 +100,19 @@ vs https://results.enr.clarityelections.com/CO/113964//300378/en/summary.html
                to https://results.enr.clarityelections.com/CO/113964/web.285569/#/summary
 
 Then try for county data.
-Get them by hand e.g. copy-paste and edit from the html source for the "Select County" tab, e.g.
+Get them by hand e.g. copy-paste and edit from the html source for the "Counties Reporting" tab, e.g.
  http://results.enr.clarityelections.com/CO/48370/122717/en/select-county.html
 i.e.....
  visit main page: http://results.enr.clarityelections.com/CO/75610/Web02-state.206999/#/
  click "select county", get map and links below that
  Test with one of them, e.g.  mine_election -D 10 -c Broomfield/75619 -d /tmp/test.bdb > /tmp/mt
   compare with ~/.config/electionaudits/tests/test2017.out
- google chrome dev tools inspect; select html at top; right click; copy element;
+ google chrome dev tools inspect / elements and select html at top; right click; copy / copy element;
  save clipboard in a file ~/.config/electionaudits/clarity-2018-primary/select-county-inspected.html
-  search for adams/ i.e.  find elements like <a href="http://results.enr.clarityelections.com/CO/Adams/75613/" ng-href="http://results.enr.clarityelections.com/CO/Adams/75613/" ng-click="commonsCtrl.toggleClass('html', 'main-nav-xs-active'); commonsCtrl.cleanMenuClasses(); commonsCtrl.toggleShowMobileMenu(true);" class="submenu-map-county01 ng-binding" data-ng-bind-html="county.split('|')[0]" target="_blank">Adams</a>
+
+ sed -e 's,//CO/,&\n,g' -e 's,/?v=, bingo\n&,g' select-county-inspected.html | grep bingo
+
+ or, fix kbd macro extract_mine_election_url and then search for adams/ i.e.  find elements like <a href="http://results.enr.clarityelections.com/CO/Adams/75613/" ng-href="http://results.enr.clarityelections.com/CO/Adams/75613/" ng-click="commonsCtrl.toggleClass('html', 'main-nav-xs-active'); commonsCtrl.cleanMenuClasses(); commonsCtrl.toggleShowMobileMenu(true);" class="submenu-map-county01 ng-binding" data-ng-bind-html="county.split('|')[0]" target="_blank">Adams</a>
  navigate to just before adams there
  run keyboard macro extract_mine_election_url for each county
  first, or later, fix trailing slashes
@@ -795,7 +829,73 @@ CO_counties_2018 = [
  'Yuma/91873/',
 ]
 
-CO_counties = CO_counties_2018
+CO_counties_2022 = [
+ 'Adams/115906',
+ 'Alamosa/115907',
+ 'Arapahoe/115905',
+ 'Archuleta/115908',
+ 'Baca/115909',
+ 'Bent/115910',
+ 'Broomfield/115912',
+ 'Chaffee/115913',
+ 'Cheyenne/115914',
+ 'Clear_Creek/115915',
+ 'Conejos/115916',
+ 'Costilla/115917',
+ 'Crowley/115918',
+ 'Custer/115919',
+ 'Delta/115920',
+ 'Denver/115921',
+ 'Dolores/115922',
+ 'Douglas/115923',
+ 'Eagle/115924',
+ 'El_Paso/115926',
+ 'Elbert/115925',
+ 'Fremont/115927',
+ 'Garfield/115928',
+ 'Gilpin/115929',
+ 'Grand/115930',
+ 'Gunnison/115931',
+ 'Hinsdale/115932',
+ 'Huerfano/115933',
+ 'Jackson/115934',
+ 'Jefferson/115904',
+ 'Kiowa/115935',
+ 'Kit_Carson/115936',
+ 'La_Plata/115938',
+ 'Lake/115937',
+ 'Larimer/115939',
+ 'Las_Animas/115940',
+ 'Lincoln/115941',
+ 'Logan/115942',
+ 'Mesa/115943',
+ 'Mineral/115944',
+ 'Moffat/115945',
+ 'Montezuma/115946',
+ 'Montrose/115947',
+ 'Morgan/115948',
+ 'Otero/115949',
+ 'Ouray/115950',
+ 'Park/115951',
+ 'Phillips/115952',
+ 'Pitkin/115953',
+ 'Prowers/115954',
+ 'Pueblo/115955',
+ 'Rio_Blanco/115956',
+ 'Rio_Grande/115957',
+ 'Routt/115958',
+ 'Saguache/115959',
+ 'San_Juan/115960',
+ 'San_Miguel/115961',
+ 'Sedgwick/115962',
+ 'Summit/115963',
+ 'Teller/115964',
+ 'Washington/115966',
+ 'Weld/115967',
+ 'Yuma/115968',
+]
+
+CO_counties = CO_counties_2022
 
 # Example of TemplateRedirect seen with Web02 in Colorado in 2017
 # From curl http://results.enr.clarityelections.com/CO/71802/
@@ -884,6 +984,8 @@ def main(parser):
             ids = CO_counties_2018_P
         elif options.countyids == "CO2018":
             ids = CO_counties_2018
+        elif options.countyids == "CO2022":
+            ids = CO_counties_2022
         else:
             ids = [options.countyids] # for a single county
 
@@ -943,12 +1045,12 @@ def main(parser):
                     csvf = files.open(f)
                     csv = csvf.read()
 
-                    with open(csvfilename, 'w') as f:
+                    with open(csvfilename, 'wb') as f:
                         f.write(csv)
                 except zipfile.BadZipfile as e:
                     logging.critical("Error on %s: %s" % (k, e))
                     unkfilename = "%s-summary.unk" % k.split('/')[0]
-                    with open(unkfilename, 'w') as f:
+                    with open(unkfilename, 'wb') as f:
                         f.write(v)
 
         except (ValueError, bsddb.db.DBPageNotFoundError) as e:
@@ -956,24 +1058,32 @@ def main(parser):
 
     db.close()
 
+def urlopen_as_chrome(url):
+    "open url with chrome user agent"
+
+    chrome_ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36"
+    req = urllib.request.Request(url, data=None, headers={'User-Agent': chrome_ua})
+    return urllib.request.urlopen(req)
+    
+
 def retrieve(path, db, options):
     """
     retrieve the given paths from clarity, and put in db if there is new data.
     return any possible future paths to fetch
     """
 
-    urlprefix = "http://results.enr.clarityelections.com/"
+    urlprefix = "https://results.enr.clarityelections.com/"
 
     logging.info("Try to find a redirect for %s from %s" % (path, urlprefix + path))
     url = urlprefix + path
     try:
-        stream = urllib.request.urlopen(url)
+        stream = urlopen_as_chrome(url)
     except Exception as e:
-         logging.error("urllib error on url '%s':\n %s" % (url, e))
+         logging.error("retrieve() urllib error on url '%s':\n %s" % (url, e))
          return []
 
     redirect_html = stream.read().decode('utf-8')
-    logging.debug("Redirect text: %s" % redirect_html)
+    logging.debug("redirect_html text: %s" % redirect_html)
 
     match = version_re.search(redirect_html)
         
@@ -985,21 +1095,24 @@ def retrieve(path, db, options):
         #   so what is .../versions.txt - odd
 
         logging.info("Try current_ver.txt for %s from %s" % (path, urlprefix + path))
-        url = urlprefix + path + "/current_ver.txt"
+        url = urlprefix + path + "current_ver.txt"
         try:
-            stream = urllib.request.urlopen(url)
+            stream = urlopen_as_chrome(url)
             version = stream.read().decode(stream.headers.get_content_charset())
             logging.debug("version string: %s" % version)
         except Exception as e:
-             logging.error("urllib error on url '%s':\n %s" % (url, e))
+             logging.error("retrieve2 urllib error on url '%s':\n %s" % (url, e))
              return []
 
     try:
         logging.debug("Match for version: %s" % version)
         # FIXME: until 2022: summary_url = urlprefix + "%s/%s%s/en/summary.html" % (path, version, options.urlformat)
-        # Now want https://results.enr.clarityelections.com/CO/113964/web.285569/#/summary
-        logging.critical("Note we hardcoded quasi-version web.285569 - parse from redirect_html instead")
-        summary_url = urlprefix + "%s/%s/#/summary" % (path, "web.285569")
+        # Now want e.g. https://results.enr.clarityelections.com/CO/113964/web.285569/#/summary
+        # Note web.285569 from redirect_html may the same in 2022-11 as in 2022-07 at state level?
+        #   but web.307039 for Broomfield?
+        quasi_version = "web.307039"
+        logging.critical("Note we hardcoded quasi-version %s - parse from redirect_html shown above instead", quasi_version)
+        summary_url = urlprefix + "%s/%s/#/summary" % (path, quasi_version)
         # => e.g.  http://results.enr.clarityelections.com/CO/Boulder/43040/110810/en/summary.html
         csvz_url = urlprefix + "%s/%s/reports/summary.zip" % (path, version)
         # http://results.enr.clarityelections.com/CO/51557/138497/en/select-county.html
@@ -1027,13 +1140,13 @@ def retrieve(path, db, options):
 
     else:
         logging.critical("Retrieving new results from %s" % summary_url)
-        summary = urllib.request.urlopen(summary_url).read().decode("utf-8")
+        summary = urlopen_as_chrome(summary_url).read().decode("utf-8")
         db[summary_filen] = summary
         logging.info("summary file length: %d" % len(summary))
         logging.log(5, "summary file: %s" % summary)
 
         logging.info("Retrieving csvz file: %s" % csvz_url)
-        csvz = urllib.request.urlopen(csvz_url).read()
+        csvz = urlopen_as_chrome(csvz_url).read()
         db[csvz_filen] = csvz
 
         match = re.search(r'ast updated[^;]*;(?P<lastupdated>[^<]*)<', summary)
@@ -1070,7 +1183,7 @@ def retrieve(path, db, options):
 
     if "/" not in path[3:]:
         logging.info("Get select-county.html at %s" % select_county_url)
-        countyList = urllib.request.urlopen(select_county_url).read()
+        countyList = urlopen_as_chrome(select_county_url).read()
 
         logging.log(5, "countyList = %s" % countyList)
 
