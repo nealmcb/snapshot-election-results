@@ -17,6 +17,10 @@ Usage:
 
  mine_election -d database.bdb --dumpkeys | grep zip
 
+dump all csvs:
+ cd ~/.config/electionaudits/clarity-2022/dump
+ mine_election --dumpcsvs -d ../../clarity-2022.bdb
+
 Example of dumping all the csv files, including perennial error since Boulder doesn't upload
  mkdir dumpcsvs-test
  cd dumpcsvs-test
@@ -1111,7 +1115,7 @@ def retrieve(path, db, options):
         # Note web.285569 from redirect_html may the same in 2022-11 as in 2022-07 at state level?
         #   but web.307039 for Broomfield?
         quasi_version = "web.307039"
-        logging.critical("Note we hardcoded quasi-version %s - parse from redirect_html shown above instead", quasi_version)
+        logging.debug("Note we hardcoded quasi-version %s - parse from redirect_html shown above instead", quasi_version)
         summary_url = urlprefix + "%s/%s/#/summary" % (path, quasi_version)
         # => e.g.  http://results.enr.clarityelections.com/CO/Boulder/43040/110810/en/summary.html
         csvz_url = urlprefix + "%s/%s/reports/summary.zip" % (path, version)
