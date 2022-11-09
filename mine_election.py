@@ -56,9 +56,22 @@ as shown below, and ~/bin/mine_current_election is also updated, it can be used 
 
 $ while true; do mine_current_election ; sleep 500; done
 
-Get them by hand e.g. copy-paste and edit from the html source for
+As of 2022 primary, not clear if county-level details are available
+for state-level data, start by noticing that state points to
+  https://results.enr.clarityelections.com/CO/113964/
+so start with testing and/or debug output from
+  mine_election -D 10 -c 113964 -d /tmp/testco2.bdb > /tmp/mt
+  and note current_ver works, which could lead to
+   https://results.enr.clarityelections.com//CO//113964/300298/reports/summary.zip
+vs https://results.enr.clarityelections.com/CO/113964//300378/en/summary.html
+ may also benefit from an update - look for code like this:  urlRed = originalUrlArray[0] + 'web.285569'+ 
+ to redirect from https://results.enr.clarityelections.com/CO/113964/
+               to https://results.enr.clarityelections.com/CO/113964/web.285569/#/summary
+
+Then try for county data.
+Get them by hand e.g. copy-paste and edit from the html source for the "Select County" tab, e.g.
  http://results.enr.clarityelections.com/CO/48370/122717/en/select-county.html
-or....
+i.e.....
  visit main page: http://results.enr.clarityelections.com/CO/75610/Web02-state.206999/#/
  click "select county", get map and links below that
  Test with one of them, e.g.  mine_election -D 10 -c Broomfield/75619 -d /tmp/test.bdb > /tmp/mt
@@ -82,6 +95,24 @@ For examples from around the county via http://www.reddit.com/domain/results.enr
  not sure. this works:
    http://results.enr.clarityelections.com/CO/Boulder/63754/179820/Web01/en/summary.html
  ERROR:root:No version number in http://results.enr.clarityelections.com/CO/Boulder/179927/
+
+2022-07-07T09:59:54-0600 trying:
+ 404  https://results.enr.clarityelections.com/CO/Broomfield/113973/299930/Web02/en/summary.html
+
+noticing from Clarity web pages 2022:
+ https://results.enr.clarityelections.com/CO/113964/web.285569/#/summary
+ https://results.enr.clarityelections.com/CO/113964/web.285569/#/access-to-races
+ https://results.enr.clarityelections.com//CO/Broomfield/113973/web.285569/#/?v=299930/
+ https://results.enr.clarityelections.com//CO//113964/300298/reports/summary.zip
+ https://results.enr.clarityelections.com//CO//113964/300298/reports/detailtxt.zip
+
+For some reason, on the web site, there are Reports e.g. with county csvs on
+   https://results.enr.clarityelections.com/CO/113964/web.285569/#/reporting
+but not on
+   https://results.enr.clarityelections.com/CO/Broomfield/113973/web.285569/#/summary?v=299930%2F
+
+and even those summary-boulder.csv files don't have county contests
+ oops - those are all state results - all the same....
 
 %InsertOptionParserUsage%
 
@@ -239,7 +270,7 @@ import shelve
 import bsddb3 as bsddb
 import zipfile
 from pprint import pprint
-from io import StringIO
+from io import BytesIO
 #import dbm.bsd
 __version__ = "0.1.0"
 
@@ -791,7 +822,7 @@ def zip_to_csv(db, summary_zip_key):
 
     try:
         zipentry = db[summary_zip_key]
-        zipf = zipfile.ZipFile(StringIO(zipentry))
+        zipf = zipfile.ZipFile(BytesIO(zipentry))
         csvsumfile = zipf.open('summary.csv')
         csvfilename = summary_zip_key[:summary_zip_key.index("/")] + "-summary.csv"
         logging.debug("save csv to %s" % csvfilename)
@@ -875,7 +906,7 @@ def main(parser):
             if "CO-7" in k  and  "summary.zip" in k:
                 print("key: %s" % k)
 
-                zipf = StringIO(v)
+                zipf = BytesIO(v)
                 files = zipfile.ZipFile(zipf, "r")
                 for f in files.namelist():
                     logging.debug("  file: %s" % f)
@@ -901,7 +932,7 @@ def main(parser):
 
                 csvfilename = "%s-summary.csv" % k.split('/')[0]
 
-                zipf = StringIO(v)
+                zipf = BytesIO(v)
 
                 try:
                   files = zipfile.ZipFile(zipf, "r")
@@ -957,7 +988,7 @@ def retrieve(path, db, options):
         url = urlprefix + path + "/current_ver.txt"
         try:
             stream = urllib.request.urlopen(url)
-            version = stream.read()
+            version = stream.read().decode(stream.headers.get_content_charset())
             logging.debug("version string: %s" % version)
         except Exception as e:
              logging.error("urllib error on url '%s':\n %s" % (url, e))
@@ -965,7 +996,10 @@ def retrieve(path, db, options):
 
     try:
         logging.debug("Match for version: %s" % version)
-        summary_url = urlprefix + "%s/%s%s/en/summary.html" % (path, version, options.urlformat)
+        # FIXME: until 2022: summary_url = urlprefix + "%s/%s%s/en/summary.html" % (path, version, options.urlformat)
+        # Now want https://results.enr.clarityelections.com/CO/113964/web.285569/#/summary
+        logging.critical("Note we hardcoded quasi-version web.285569 - parse from redirect_html instead")
+        summary_url = urlprefix + "%s/%s/#/summary" % (path, "web.285569")
         # => e.g.  http://results.enr.clarityelections.com/CO/Boulder/43040/110810/en/summary.html
         csvz_url = urlprefix + "%s/%s/reports/summary.zip" % (path, version)
         # http://results.enr.clarityelections.com/CO/51557/138497/en/select-county.html
@@ -993,7 +1027,7 @@ def retrieve(path, db, options):
 
     else:
         logging.critical("Retrieving new results from %s" % summary_url)
-        summary = urllib.request.urlopen(summary_url).read()
+        summary = urllib.request.urlopen(summary_url).read().decode("utf-8")
         db[summary_filen] = summary
         logging.info("summary file length: %d" % len(summary))
         logging.log(5, "summary file: %s" % summary)
@@ -1015,7 +1049,7 @@ def retrieve(path, db, options):
 
     logging.info("Version: %s, updated %s, file %s" % (version, str(lastupdated_ts), summary_filen))
 
-    zipf = StringIO(csvz)
+    zipf = BytesIO(csvz)
     try:
         files = zipfile.ZipFile(zipf, "r")
     except zipfile.BadZipfile as e:
