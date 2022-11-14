@@ -21,6 +21,9 @@ dump all csvs:
  cd ~/.config/electionaudits/clarity-2022/dump
  mine_election --dumpcsvs -d ../../clarity-2022.bdb
 
+Look for particular races. Generally start and end with .* so the whole csv line is captured
+ mine_election -f '.*Boebert.*' -d test.bdb
+
 Example of dumping all the csv files, including perennial error since Boulder doesn't upload
  mkdir dumpcsvs-test
  cd dumpcsvs-test
@@ -116,7 +119,10 @@ i.e.....
 
  sed -e 's,//CO/,&\n,g' -e 's,/?v=, bingo\n&,g' select-county-inspected.html | grep bingo
 
- or, fix kbd macro extract_mine_election_url and then search for adams/ i.e.  find elements like <a href="http://results.enr.clarityelections.com/CO/Adams/75613/" ng-href="http://results.enr.clarityelections.com/CO/Adams/75613/" ng-click="commonsCtrl.toggleClass('html', 'main-nav-xs-active'); commonsCtrl.cleanMenuClasses(); commonsCtrl.toggleShowMobileMenu(true);" class="submenu-map-county01 ng-binding" data-ng-bind-html="county.split('|')[0]" target="_blank">Adams</a>
+ then get rid of the "bingo" markers
+ and add, at the end, the state-wide version number.
+
+ Or, fix kbd macro extract_mine_election_url and then search for adams/ i.e.  find elements like <a href="http://results.enr.clarityelections.com/CO/Adams/75613/" ng-href="http://results.enr.clarityelections.com/CO/Adams/75613/" ng-click="commonsCtrl.toggleClass('html', 'main-nav-xs-active'); commonsCtrl.cleanMenuClasses(); commonsCtrl.toggleShowMobileMenu(true);" class="submenu-map-county01 ng-binding" data-ng-bind-html="county.split('|')[0]" target="_blank">Adams</a>
  navigate to just before adams there
  run keyboard macro extract_mine_election_url for each county
  first, or later, fix trailing slashes
@@ -176,12 +182,21 @@ wr.write(wash)
 wr.close()
 
 TODO:
+ print exit message
+    include ballot counts
+    include deltas in ballot counts for each jurisdiction
+
+ Investigate / avoid stuckness 2022-11-08T21:58:17-0700  hasn't finished after 30 minutes
+  attempts to read yield:  _gdbm.error: [Errno 11] Resource temporarily unavailable: '../../clarity-2022.bdb'
+  worked to ctrl-c and run again
+
+ Character set of csv files seems to be iso-8859-1. Produce UTF-8 output.
+   confirm character encodings - use .decode('ISO-8859-1') instead of utf-8?
+
  Print error message when db open fails
 
  Fix fact that html is all the same, just a wordy "The requested page was not found."
   either find a useful html file, or don't save them
-
- Character set of csv files seems to be iso-8859-1. Produce UTF-8 output.
 
  Update method for getting current version of data, ala
     http://results.enr.clarityelections.com/CO/63746/current_ver.txt?rnd=0.8333623006146083
@@ -897,6 +912,7 @@ CO_counties_2022 = [
  'Washington/115966',
  'Weld/115967',
  'Yuma/115968',
+ '115903',
 ]
 
 CO_counties = CO_counties_2022
@@ -963,9 +979,12 @@ def main(parser):
 
     logging.debug("options: %s; args: %s", options, args)
 
-    logging.log(60, "Start at %s.  Using database: %s" % (datetime.isoformat(datetime.now()), options.database))
+    searchkeys = ['find', 'dumpkeys', 'dumpcsvs']
+    open_mode = 'r' if any(v for k,v in vars(options).items() if k in searchkeys) else 'c'
 
-    db = shelve.open(options.database)  # Consider second option 'r': opening read-only, for query-only options
+    logging.log(60, f"Start at {datetime.isoformat(datetime.now())}.  Using database: {options.database} mode {open_mode}")
+
+    db = shelve.open(options.database, open_mode)
 
     if options.dumpkeys:
         print("Saved items: %d" % len(list(db.keys())))
@@ -1004,13 +1023,23 @@ def main(parser):
                 retrieve(path, db, options)
 
     if options.find:
-        print("find: '%s'" % options.find)
+        VER_RE = re.compile(r"([0-9]+)\/reports")
+
+        HEADERS = "timestamp,county,line,contest_name,choice_name,party,total_votes,pct_votes,registered,ballots,precincts,precincts_reporting,overvotes,undervotes"
+
+        print(HEADERS)
+
         try:
           for k, v in db.items():
             logging.debug("  key: %s" % k)
 
-            if "CO-7" in k  and  "summary.zip" in k:
-                print("key: %s" % k)
+            if "CO-" in k  and  "summary.zip" in k:
+                logging.debug("try key: %s" % k)
+
+                county = k.split("-")[1]
+                # The state-wide csv is the only one which is all numeric: just a version number
+                if county.isnumeric():
+                    county = "Colorado"
 
                 zipf = BytesIO(v)
                 files = zipfile.ZipFile(zipf, "r")
@@ -1018,12 +1047,24 @@ def main(parser):
                     logging.debug("  file: %s" % f)
                     if f != "summary.csv":
                         logging.error("Error - got file named %s in zip file, not summary.csv" % f)
+                    # f = e.g. CO-Delta-115920--310858/reports/summary.zip or CO-115903--312190/reports/summary.zip  was CO-Morgan-91853---216316/reports/summary.zip
+                    ver = re.search(VER_RE, k).groups()[0]
+                    timestamp = db[ver][0].split()[0]       # get timestamp for when this csv was retrieved
+
                     csvf = files.open(f)
-                    csv = csvf.read()
+                    csv = csvf.read().decode('ISO-8859-1')
 
                     matches = re.finditer(options.find, csv)
                     for m in matches:
-                        print(m.groups())
+                        # TODO: always print whole line? Hard: doing a global search on whole file....
+                        # so FIXME note the need to specify a pattern that matches the whole line....
+                        outcome = m.group()
+                        # Skip lines with a zero pct_votes
+                        # print(outcome.split(',')[5])
+                        logging.debug(f'{outcome=}')
+                        if outcome.split(',')[5] == "0.00":
+                            continue
+                        print(f"{timestamp},{county},{outcome}")
         except (ValueError, bsddb.db.DBPageNotFoundError) as e:
             logging.critical("Error: %s", e, exc_info=True)
 
