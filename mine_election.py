@@ -32,13 +32,6 @@ Example of dumping all the csv files, including perennial error since Boulder do
     CRITICAL:root:Error on CO-Boulder-91816---216293/reports/summary.zip: File is not a zip file 
  ls         # see all the csvs
 
-To get timestamp for a given csv file:
- Parse out version number from csv filename, e.g. 216316 for CO-Morgan-91853---216316/reports/summary.zip
- look up db['216316']
- See:
-  ('2018-11-05T18:11:45.868662 retrieved',
-   'CO-Morgan-91853---216316/en/summary.html')
-
 To debug:
  ./mine_election.py -D 10 -c Broomfield/75619 -d /tmp/test.bdb tee -a ~/.config/electionaudits/tests/test.log
  ./mine_election.py -D 10 -c 63746 2>&1 | tee -a ~/.config/electionaudits/clarity-log
@@ -182,6 +175,10 @@ wr.write(wash)
 wr.close()
 
 TODO:
+ set up timeouts and retrys
+ log time etc for Retrieving
+ quit early if network is down [for tidyness]
+
  print exit message
     include ballot counts
     include deltas in ballot counts for each jurisdiction
@@ -365,6 +362,8 @@ parser.add_option("-e", "--export", action='store_true',
 __doc__ = __doc__.replace("%InsertOptionParserUsage%\n", parser.format_help())
 
 detail_xml_name="/srv/voting/colorado/2012/detail.xml"
+
+VER_RE = re.compile(r"([0-9]+)\/reports")
 
 class Residual(object):
     def __init__(self, **attributes):
@@ -937,6 +936,7 @@ type = "text/javascript" > TemplateRedirect("", "./190184", "Web02", "Mobile01")
 def zip_to_csv(db, summary_zip_key):
     """Given the database of reports
     and a key for the "...summary.zip" zip file containing the summary.csv of interest,
+    e.g. "CO-Delta-115920--310858/reports/summary.zip",
     extract the summary.csv and save it as a csv file in the current directory.
     """
 
@@ -948,6 +948,13 @@ def zip_to_csv(db, summary_zip_key):
         logging.debug("save csv to %s" % csvfilename)
         with open(csvfilename, "wb") as csvfile:
             csvfile.write(csvsumfile.read())
+
+            # Set the file-modification time to reflect the clarity retrieval timestamp
+            ver = re.search(VER_RE, summary_zip_key).groups()[0]
+            timestamp = db[ver][0].split()[0]
+            unix_timestamp = datetime.fromisoformat(timestamp).timestamp()
+            os.utime(csvfilename, (unix_timestamp, unix_timestamp))
+
     except zipfile.BadZipfile as e:
         logging.critical("Error on %s: %s" % (summary_zip_key, e))
 
@@ -1023,8 +1030,6 @@ def main(parser):
                 retrieve(path, db, options)
 
     if options.find:
-        VER_RE = re.compile(r"([0-9]+)\/reports")
-
         HEADERS = "timestamp,county,line,contest_name,choice_name,party,total_votes,pct_votes,registered,ballots,precincts,precincts_reporting,overvotes,undervotes"
 
         print(HEADERS)
