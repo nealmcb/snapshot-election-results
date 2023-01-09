@@ -847,7 +847,7 @@ CO_counties_2018 = [
  'Yuma/91873/',
 ]
 
-CO_counties_2022 = [
+CO_counties_2022 = [ # 404: Not Found: Boulder/115911 - not sure why Boulder County isn't included this way, not sure if they're in total results.
  'Adams/115906',
  'Alamosa/115907',
  'Arapahoe/115905',
